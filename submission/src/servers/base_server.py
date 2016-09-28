@@ -7,7 +7,12 @@ from socket import SOCK_STREAM, socket, AF_INET
 """
 use port 20000+i for each process' server socket, where i is the process id. 
 Each process will search ports between 20000 and 20000+n−1 to see which 
-process is alive. To then connect to
+process is alive. To then connect to.
+
+The server is passed onto all the handler threads because it essentially acts
+as a container for the "global state" of the processes server. Each of the handler
+needs to reference the server "Global" to get the current state of this participant
+and to interact and work collectively
 """
 
 """
@@ -150,35 +155,16 @@ class Server:
 	    	self.valid = True
 
 	    def run(self):
-	        global leader, threads, wait_ack
 	        while self.valid:
 	            try:
-	                data = self.sock.recv(1024)
-	                #sys.stderr.write(data)
-	                line = data.split('\n')
-	                for l in line:
-	                    s = l.split()
-	                    if len(s) < 2:
-	                        continue
-	                    if s[0] == 'coordinator':
-	                        leader_lock.acquire()
-	                        leader = int(s[1])
-	                        leader_lock.release()
-	                    elif s[0] == 'resp':
-	                        sys.stdout.write(s[1] + '\n')
-	                        sys.stdout.flush()
-	                        wait_ack_lock.acquire()
-	                        wait_ack = False
-	                        wait_ack_lock.release()
-	                    elif s[0] == 'ack':
-	                        wait_ack_lock.acquire()
-	                        wait_ack = False
-	                        wait_ack_lock.release()
+	            	# TODO This is where the 3 phase commit will live
+	            	# this is where the 3 phase commit will be implemented
 	            except:
-	                print sys.exc_info()
+	                # print sys.exc_info()
 	                self.valid = False
-	                del threads[self.index]
-	                self.sock.close()
+	                # ERROR HANDLING for WHEN Client Connection CRASHES
+	                # del threads[self.index]
+	                # self.sock.close()
 	                break
 
 	    def send(self, s):
