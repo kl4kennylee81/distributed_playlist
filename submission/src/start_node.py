@@ -13,6 +13,7 @@ def main():
   pid, n, port = map(int, sys.argv[1:])
   server = base_server.Server(pid, n, port)
   print "Finished starting up process {} at port {}".format(pid, port)
+  server.run()
 
 if __name__ == "__main__":
   main()
