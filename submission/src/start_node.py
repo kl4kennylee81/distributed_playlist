@@ -11,7 +11,7 @@ def main():
   The arguments are in the order [name] [pid] [n] [port] 
   """
   pid, n, port = map(int, sys.argv[1:])
-  server = base_server.Server(pid, n, port)
+  server = base_server.Participant(pid, n, port)
   print "Finished starting up process {} at port {}".format(pid, port)
   server.run()
 

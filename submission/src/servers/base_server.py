@@ -39,20 +39,18 @@ class ClientConnectionHandler(Thread):
     Thread.__init__(self)
 
   @classmethod
-  def fromConnection(cls, conn, pid):
+  def fromConnection(cls, conn):
     result = cls()
     result.conn = conn
     result.valid = True
-    result.pid = pid
     return result
 
   @classmethod
-  def fromAddress(cls, address, port, pid):
+  def fromAddress(cls, address, port):
     result = cls()
     result.conn = socket.socket(AF_INET, SOCK_STREAM) 
     result.conn.connect((address, port))
     result.valid = True
-    result.pid = pid
     return result
 
   def run(self):
@@ -108,7 +106,7 @@ class ServerConnectionHandler(Thread):
         new_client_thread.start()
 
 
-class Server:
+class Participant:
   """
   use port 20000+i for each process' server socket, where i is the process id. 
   Each process will search ports between 20000 and 20000+n-1 to see which
