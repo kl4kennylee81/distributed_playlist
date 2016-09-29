@@ -4,6 +4,7 @@ import time
 from threading import Thread, Lock
 import socket
 from socket import SOCK_STREAM, AF_INET
+import messages
 
 
 BUFFER_SIZE = 1024
@@ -17,15 +18,31 @@ class MasterClientHandler(Thread):
   ex. the application requests
   """
 
-  def __init__(self, master_conn):
+  def __init__(self, master_conn, server):
     Thread.__init__(self)
     self.master_conn = master_conn
+    self.server = server
 
   def run(self):
-    while(True):
+    while True:
       # TODO: logic for handling application requests
       data = self.master_conn.recv(BUFFER_SIZE)
       print "got message from master client: {}".format(data)
+      self._parse_data(data)
+
+
+  def _parse_data(self, data):
+    cmd = data.split()[0]
+
+    if cmd == "add":
+      song_name, url = data.split()[1:]
+      self.server.current_request = "add"
+
+    elif cmd == "delete":
+      pass
+
+    elif cmd == "get":
+      pass
 
 
 class ClientConnectionHandler(Thread):

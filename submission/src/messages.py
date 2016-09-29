@@ -114,24 +114,24 @@ class Reelect(Message):
     return myJSON
 
 
-
 # VoteReq
 class VoteReq(Message):
   msg_type = 6 
 
-  def __init__(self, port, participants): 
+  def __init__(self, port, participants, request): 
     super(VoteReq, self).__init__(port, VoteReq.msg_type)
     self.participants = participants
+    self.request = request
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['port'], my_json['participants'])
+    return cls(my_json['port'], my_json['participants'], my_json['request'])
 
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['participants'] = self.participants
+    myJSON['request'] = self.request
     return myJSON
-
 
 
 # StateReq 
