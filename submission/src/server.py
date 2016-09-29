@@ -4,7 +4,8 @@ import time
 from threading import Thread, Lock
 import socket
 from socket import SOCK_STREAM, AF_INET
-import messages
+from messages import *
+from constants import *
 
 
 BUFFER_SIZE = 1024
@@ -22,6 +23,11 @@ class MasterClientHandler(Thread):
     Thread.__init__(self)
     self.master_conn = master_conn
     self.server = server
+    self.handlers = {
+      Add.msg_type: self._add_handler,
+      Get.msg_type: self._get_handler,
+      Delete.msg_type: self._delete_handler,
+    }
 
   def run(self):
     while True:
@@ -32,17 +38,24 @@ class MasterClientHandler(Thread):
 
 
   def _parse_data(self, data):
-    cmd = data.split()[0]
+    deserialized = deserialize_client_req(data, self.server.pid)
+    self.handlers[deserialized.type](deserialized, data, self.server)
 
-    if cmd == "add":
-      song_name, url = data.split()[1:]
-      self.server.current_request = "add"
+  def _add_handler(self, deserialized, data, server):
+    with server.global_lock:
+      server.current_request = deserialized
+      server.coordinator_state = CoordinatorState.votereq
 
-    elif cmd == "delete":
-      pass
+      voteReq = VoteReq(self.server.pid, data)
 
-    elif cmd == "get":
-      pass
+      for procs in self.server.other_procs:
+        procs.send(voteReq.serialize())
+
+  def _get_handler(self):
+    pass
+
+  def _delete_handler(self):
+    pass
 
 
 class ClientConnectionHandler(Thread):
@@ -56,23 +69,27 @@ class ClientConnectionHandler(Thread):
     Thread.__init__(self)
 
   @classmethod
-  def fromConnection(cls, conn):
+  def fromConnection(cls, conn, server):
     result = cls()
     result.conn = conn
     result.valid = True
+    result.result = server
     return result
 
   @classmethod
-  def fromAddress(cls, address, port):
+  def fromAddress(cls, address, port, server):
     result = cls()
     result.conn = socket.socket(AF_INET, SOCK_STREAM) 
     result.conn.connect((address, port))
     result.valid = True
+    result.server = server
     return result
 
   def run(self):
     print "[+] New ClientConnectionHandler"
     while True:
+      data = self.conn.recv(BUFFER_SIZE)
+      print "got this bro: ", data
       # TODO: 3 phase commit logic
       break 
 
@@ -116,7 +133,7 @@ class ServerConnectionHandler(Thread):
       print("Pid {}: Connection Accepted".format(self.server.pid))
 
       with self.server.global_lock:
-        new_client_thread = ClientConnectionHandler.fromConnection(conn)
+        new_client_thread = ClientConnectionHandler.fromConnection(conn, self)
         self.server.other_procs.append(new_client_thread)
         new_client_thread.start()
 
@@ -148,8 +165,15 @@ class Server:
   """
   
   def __init__(self, pid, n, port, leader):
+    # all the instance variables in here are "global states" for the server
     self.leader = leader
     self.pid = pid
+
+    # keeping track of current global state
+    self.current_request = None
+    self.coordinator_state = CoordinatorState.standby
+    self.state = State.aborted
+
     self.other_procs = [None for i in range(self.pid)]
     self.global_lock = Lock()
 
@@ -160,7 +184,7 @@ class Server:
     # wait synchronously for the master to connect
     self.master_server.listen(0)
     (master_conn, (ip, master_client_port)) = self.master_server.accept()
-    self.master_thread = MasterClientHandler(master_conn)
+    self.master_thread = MasterClientHandler(master_conn, self)
     self.master_thread.start()
 
     # this is the socket that all the other internal participants connect to
@@ -173,7 +197,8 @@ class Server:
       try:
         port_to_connect = START_PORT + i
         cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, 
-                                                          port_to_connect)
+                                                          port_to_connect, 
+                                                          self)
         with self.global_lock:
           self.other_procs[i] = cur_handler
           self.other_procs[i].start()
