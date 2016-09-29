@@ -4,7 +4,7 @@ from enum import Enum
 State = Enum('State', 'aborted uncertain committable committed')
 
 # Possible coordinator states 
-CoordinatorState = Enum('CoordinatorState', 'standby votereq precommit completed')
+CoordinatorState = Enum('CoordinatorState', 'standby send_votereq wait_votes send_precommit wait_acks completed')
 
 # Commands from master client
 Request = Enum('Request', 'add get delete')

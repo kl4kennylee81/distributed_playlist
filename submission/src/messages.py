@@ -68,7 +68,8 @@ class PreCommit(Message):
     return cls(my_json['pid'])
 
   def serialize(self): 
-    return super(PreCommit, self).serialize() 
+    undumped = super(PreCommit, self).serialize() 
+    return json.dumps(undumped)
 
 
 
@@ -84,7 +85,8 @@ class Recover(Message):
     return cls(my_json['pid'])
 
   def serialize(self): 
-    return super(Recover, self).serialize() 
+    undumped = super(PreCommit, self).serialize() 
+    return json.dumps(undumped)
 
 
 
@@ -103,7 +105,7 @@ class Reelect(Message):
   def serialize(self): 
     myJSON = super(Reelect, self).serialize() 
     myJSON['new_coord_pid'] = self.new_coord_pid
-    return myJSON
+    return json.dumps(myJSON)
 
 
 # VoteReq
@@ -121,7 +123,7 @@ class VoteReq(Message):
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
-    return myJSON
+    return json.dumps(myJSON)
 
 
 # StateReq 
@@ -136,7 +138,8 @@ class StateReq(Message):
     return cls(my_json['pid'])
 
   def serialize(self): 
-    return super(StateReq, self).serialize() 
+    undumped = super(StateReq, self).serialize() 
+    json.dumps(undumped)
 
 
 
@@ -155,18 +158,34 @@ class StateRepid(Message):
   def serialize(self): 
     myJSON = super(StateRepid, self).serialize() 
     myJSON['state'] = self.state.name
-    return myJSON
+    return json.dumps(myJSON)
+
+# Ack
+class Ack(Message): 
+  msg_type = 9
+
+  def __init__(self, pid): 
+    super(Ack self).__init__(pid, Ack.msg_type)
+
+  @classmethod
+  def from_json(cls, my_json):
+    return cls(my_json['pid'])
+
+  def serialize(self): 
+    myJSON = super(Ack, self).serialize() 
+    return json.dumps(myJSON)
 
 
 # Constructors to be called in deserialize on a per-
 # msg_type basis 
 MSG_CONSTRUCTORS = { 
+  VoteReq.msg_type: VoteReq, 
   Vote.msg_type: Vote, 
-  Decision.msg_type: Decision, 
   PreCommit.msg_type: PreCommit, 
+  Ack.msg_type: Ack,
+  Decision.msg_type: Decision, 
   Recover.msg_type: Recover, 
   Reelect.msg_type: Reelect,
-  VoteReq.msg_type: VoteReq, 
   StateReq.msg_type: StateReq,
   StateRepid.msg_type: StateRepid
 }
@@ -190,6 +209,12 @@ class Add(Message):
     self.song_name = song_name
     self.url = url
 
+  def serialize(self): 
+    myJSON = super(Add, self).serialize() 
+    myJSON['song_name'] = self.song_name
+    myJSON['url'] = self.url
+    return json.dumps(myJSON)
+
 # Delete 
 class Delete(Message): 
   msg_type = 10 
@@ -198,6 +223,11 @@ class Delete(Message):
     super(Delete, self).__init__(pid, Delete.msg_type)
     self.song_name = song_name
 
+  def serialize(self): 
+    myJSON = super(Delete, self).serialize() 
+    myJSON['song_name'] = self.song_name
+    return json.dumps(myJSON)
+
 # Get 
 class Get(Message): 
   msg_type = 11
@@ -205,6 +235,11 @@ class Get(Message):
   def __init__(self, pid, song_name): 
     super(Get, self).__init__(pid, Get.msg_type)
     self.song_name = song_name
+
+  def serialize(self): 
+    myJSON = super(Get, self).serialize() 
+    myJSON['song_name'] = self.song_name
+    return json.dumps(myJSON)
 
 
 # Deserialize the Client Request 
