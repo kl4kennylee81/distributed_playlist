@@ -2,6 +2,9 @@ import json
 from enum import Enum 
 from abc import ABCMeta, abstractmethod
 
+# Different possible server states 
+State = Enum('State', 'aborted uncertain committable committed')
+
 
 # Message class 
 class Message: 
@@ -11,16 +14,13 @@ class Message:
     self.port = port 
     self.type = msg_type
 
-  @classmethod
-  def from_json(cls, my_json): 
-    return cls(my_json["port"], my_json["type"])
-
   # Undumped JSON for use in subclasses 
   @abstractmethod
   def serialize(self): 
     return { "port": self.port, "type": self.type }
 
 
+# Internal message 
 
 # Vote
 class Vote(Message): 
@@ -92,7 +92,7 @@ class Recover(Message):
     return cls(my_json['port'])
 
   def serialize(self): 
-    return super(PreCommit, self).serialize() 
+    return super(Recover, self).serialize() 
 
 
 
@@ -134,31 +134,105 @@ class VoteReq(Message):
 
 
 
-# 
+# StateReq 
+class StateReq(Message): 
+  msg_type = 7 
+
+  def __init__(self, port): 
+    super(StateReq, self).__init__(port, StateReq.msg_type)
+
+  @classmethod 
+  def from_json(cls, my_json):
+    return cls(my_json['port'])
+
+  def serialize(self): 
+    return super(StateReq, self).serialize() 
 
 
 
+# StateReport
+class StateReport(Message): 
+  msg_type = 8 
+
+  def __init__(self, port, state): 
+    super(StateReport, self).__init__(port, StateReport.msg_type)
+    self.state = State[state.lower()]
+
+  @classmethod
+  def from_json(cls, my_json):
+    return cls(my_json['port'], my_json['state'])
+
+  def serialize(self): 
+    myJSON = super(StateReport, self).serialize() 
+    myJSON['state'] = self.state.name
+    return myJSON
 
 
-
-
-
-
-
+# Constructors to be called in deserialize on a per-
+# msg_type basis 
 MSG_CONSTRUCTORS = { 
   Vote.msg_type: Vote, 
-  Decision.msg_type: Decision,
-  PreCommit.msg_type: PreCommit,
+  Decision.msg_type: Decision, 
+  PreCommit.msg_type: PreCommit, 
   Recover.msg_type: Recover, 
   Reelect.msg_type: Reelect,
-  VoteReq.msg_type: VoteReq
+  VoteReq.msg_type: VoteReq, 
+  StateReq.msg_type: StateReq,
+  StateReport.msg_type: StateReport
 }
 
 
-# Deserialize 
+# Deserialize (called for internal message passing)
 def deserialize_message(msg_string):
   myJSON = json.loads(msg_string)
   return MSG_CONSTRUCTORS[myJSON['type']].from_json(myJSON)
+
+
+
+# Master -> Server messages 
+
+# Add 
+class Add(Message): 
+  msg_type = 9
+
+  def __init__(self, song_name, url): 
+    super(Add, self).__init__(-1, Add.msg_type)
+    self.song_name = song_name
+    self.url = url
+
+# Delete 
+class Delete: 
+  msg_type = 10 
+
+  def __init__(self, song_name): 
+    super(Delete, self).__init__(-1, Delete.msg_type)
+    self.song_name = song_name
+
+# Get 
+class Get: 
+  msg_type = 11
+
+  def __init__(self, song_name): 
+    super(Get, self).__init__(-1, Get.msg_type)
+    self.song_name = song_name
+
+
+# Deserialize the Client Request 
+def deserialize_client_req(msg_string): 
+  # Trim white space, split, and clean of extra spacing 
+  msg_string = msg_string.trim() 
+  msg_list = msg_string.split(" ")
+  msg_list = filter(lambda a: a != '', msg_list)
+
+  if msg_list[0].lower() == "add": 
+    return Add(msg_list[1], msg_list[2])
+  elif msg_list[0].lower() == "delete":
+    return Delete(msg_list[1])
+  else: 
+    return Get(msg_list[1])
+
+
+
 
 
 
