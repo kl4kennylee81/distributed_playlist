@@ -41,15 +41,15 @@ class MasterClientHandler(Thread):
     deserialized = deserialize_client_req(data, self.server.pid)
     self.handlers[deserialized.type](deserialized, data, self.server)
 
-  def _add_handler(self, deserialized, data, server):
+  def _add_handler(self, deserialized, server):
     with server.global_lock:
       server.current_request = deserialized
       server.coordinator_state = CoordinatorState.votereq
 
-      voteReq = VoteReq(self.server.pid, data)
+      voteReq = VoteReq(self.server.pid, deserialized.serialize())
 
-      for procs in self.server.other_procs:
-        procs.send(voteReq.serialize())
+      for proc in self.server.other_procs:
+        proc.send(voteReq.serialize())
 
   def _get_handler(self):
     pass

@@ -1,6 +1,6 @@
-import json                             # JSON serialization 
-from abc import ABCMeta, abstractmethod # Abstract class suppid lol 
-from constants import *                 # Enums + such 
+import json
+from abc import ABCMeta, abstractmethod
+from constants import *
 
 
 # Message class 
@@ -11,7 +11,8 @@ class Message:
     self.pid = pid 
     self.type = msg_type
 
-  # Undumped JSON for use in subclasses 
+  """Un-dumped JSON for use in subclasses"""
+  @abstractmethod
   def serialize(self): 
     return { "pid": self.pid, "type": self.type }
 
@@ -190,6 +191,9 @@ class Add(Message):
     self.song_name = song_name
     self.url = url
 
+  def serialize(self):
+    return "add " + self.song_name + "," + self.url
+
 # Delete 
 class Delete(Message): 
   msg_type = 10 
@@ -198,6 +202,10 @@ class Delete(Message):
     super(Delete, self).__init__(pid, Delete.msg_type)
     self.song_name = song_name
 
+  def serialize(self):
+    return "delete " + self.song_name
+
+
 # Get 
 class Get(Message): 
   msg_type = 11
@@ -205,6 +213,9 @@ class Get(Message):
   def __init__(self, pid, song_name): 
     super(Get, self).__init__(pid, Get.msg_type)
     self.song_name = song_name
+
+  def serialize(self):
+    return "get " + self.song_name
 
 
 # Deserialize the Client Request 
