@@ -82,11 +82,9 @@ class ServerConnectionHandler(Thread):
   attempt to connect to.
   """
 
-  def __init__(self, free_port_no, pid, other_procs, other_procs_lock):
+  def __init__(self, free_port_no, server):
     Thread.__init__(self)
-    self.pid = pid
-    self.other_procs = other_procs
-    self.other_procs_lock = other_procs_lock
+    self.server = server
 
     # this is what all the other participants connect to
     self.internal_server = socket.socket(AF_INET, SOCK_STREAM) 
@@ -98,15 +96,15 @@ class ServerConnectionHandler(Thread):
     while True:
       self.internal_server.listen(0)
       (conn, (ip,port)) = self.internal_server.accept()
-      print("Pid {}: Connection Accepted".format(self.pid))
+      print("Pid {}: Connection Accepted".format(self.server.pid))
 
-      with self.other_procs_lock:
+      with self.server.global_lock:
         new_client_thread = ClientConnectionHandler.fromConnection(conn)
-        self.other_procs.append(new_client_thread)
+        self.server.other_procs.append(new_client_thread)
         new_client_thread.start()
 
 
-class Participant:
+class Server:
   """
   use port 20000+i for each process' server socket, where i is the process id. 
   Each process will search ports between 20000 and 20000+n-1 to see which
@@ -132,10 +130,11 @@ class Participant:
   to create new sockets for incoming connections
   """
   
-  def __init__(self, pid, n, port):
+  def __init__(self, pid, n, port, leader):
+    self.leader = leader
     self.pid = pid
     self.other_procs = [None for i in range(self.pid)]
-    self.other_procs_lock = Lock()
+    self.global_lock = Lock()
 
     self.master_server = socket.socket(AF_INET, SOCK_STREAM) 
     self.master_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -147,12 +146,9 @@ class Participant:
     self.master_thread = MasterClientHandler(master_conn)
     self.master_thread.start()
 
-    # this is the socket that 
+    # this is the socket that all the other internal participants connect to
     free_port_no = START_PORT + self.pid
-    self.internal_server = ServerConnectionHandler(free_port_no, 
-                                                    self.pid, 
-                                                    self.other_procs, 
-                                                    self.other_procs_lock)
+    self.internal_server = ServerConnectionHandler(free_port_no, self)
     self.internal_server.start()
     print "Starting server connection handler"
 
@@ -161,7 +157,7 @@ class Participant:
         port_to_connect = START_PORT + i
         cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, 
                                                           port_to_connect)
-        with self.other_procs_lock:
+        with self.global_lock:
           self.other_procs[i] = cur_handler
           self.other_procs[i].start()
       except:
@@ -170,10 +166,20 @@ class Participant:
 
 
   def run(self):
-    pass
+    while True:
+      if self.leader:
+        self.coordinator_run()
+      else:
+        self.participant_run()
 
 
+  def coordinator_run(self):
+    print "is coordinator", self.pid
+    time.sleep(1000000)
 
 
+  def participant_run(self):
+    print "is participant", self.pid
+    time.sleep(1000000)
 
 

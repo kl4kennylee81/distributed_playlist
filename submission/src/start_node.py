@@ -3,7 +3,7 @@ import subprocess
 import time
 from threading import Thread, Lock
 from socket import SOCK_STREAM, socket, AF_INET
-from servers import base_server
+import server
 
 def main():
   """ 
@@ -11,9 +11,10 @@ def main():
   The arguments are in the order [name] [pid] [n] [port] 
   """
   pid, n, port = map(int, sys.argv[1:])
-  server = base_server.Participant(pid, n, port)
+  leader = (pid == 0) # TODO: fix this later
+  node = server.Server(pid, n, port, leader)
+  node.run()
   print "Finished starting up process {} at port {}".format(pid, port)
-  server.run()
 
 if __name__ == "__main__":
   main()
