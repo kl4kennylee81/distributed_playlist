@@ -1,9 +1,6 @@
-import json 
-from enum import Enum 
-from abc import ABCMeta, abstractmethod
-
-# Different possible server states 
-State = Enum('State', 'aborted uncertain committable committed')
+import json                             # JSON serialization 
+from abc import ABCMeta, abstractmethod # Abstract class support lol 
+from constants import *                 # Enums + such 
 
 
 # Message class 
@@ -24,13 +21,11 @@ class Message:
 
 # Vote
 class Vote(Message): 
-  # Different types of votes 
-  Choice = Enum('Choice', 'yes no')
   msg_type = 1
 
   def __init__(self, port, choice): 
     super(Vote, self).__init__(port, Vote.msg_type) 
-    self.choice = Vote.Choice[choice.lower()]
+    self.choice = Choice[choice.lower()]
 
   @classmethod
   def from_json(cls, my_json): 
@@ -45,8 +40,6 @@ class Vote(Message):
 
 # Decision
 class Decision(Message):
-  # Different types of decisions 
-  Dec = Enum('Decision', 'commit abort')
   msg_type = 2
 
   def __init__(self, port, decision):
@@ -230,21 +223,6 @@ def deserialize_client_req(msg_string):
     return Delete(msg_list[1])
   else: 
     return Get(msg_list[1])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
