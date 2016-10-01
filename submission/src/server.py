@@ -44,10 +44,13 @@ class MasterClientHandler(Thread):
   def _add_handler(self, deserialized, data, server):
     with server.global_lock:
       server.current_request = deserialized
-      server.coordinator_state = CoordinatorState.send_votereq
+      server.coordinator_state = CoordinatorState.voteReq
+      server.state = State.uncertain
+      voteReq = VoteReq(self.pid, data)
 
-      # wakeup the main process to send
-      server.main_process_wait.notify()
+      for procs in server.other_procs:
+        serialized = voteReq.serialize()
+        procs.send(serialized)
 
   def _get_handler(self):
     pass
@@ -157,6 +160,13 @@ class ClientConnectionHandler(Thread):
     # his normal state is changed he will
     # do something dependent on his coordinator state AND his Normal State
     # the participants act only based on their normal state
+    decision = Decision(self.pid,Decision.abort)
+
+    for procs in self.other_procs:
+      serialized = decision.serialize()
+      procs.send(serialized)
+      self.coordinator_state = CoordinatorState.standby
+      self.state = State.aborted
 
   def _wait_ack_failure(server):
 
@@ -190,50 +200,62 @@ class ClientConnectionHandler(Thread):
   # Participant recieved messages votereq,precommit,decision #
   def _voteReqHandler(msg,server):
     with server.global_lock:
-      self.state = State.uncertain
-      # wakeup the main thread to send a vote
-      self.main_process_wait.notify()
+      if (server.state == State.aborted):
+        self.state = State.uncertain
+
+        voteRes = Vote(server.pid,Choice.yes)
+        self.send(voteRes.serialize())
 
   def _preCommitHandler(msg,server):
     with server.global_lock:
-      self.state = State.committable
+      if (server.state == State.uncertain):
+        self.state = State.committable
 
-      # wake up the main thread to send an ack
-      # we want to centralize the sends
-      self.main_process_wait.notify()
+        ackRes = Ack(server.pid)
+        self.send(ack.serialize())
 
 
   def _decisionHandler(msg,server):
     with server.global_lock:
+      if (server.state == State.commitable):
+        songname,url = self.server.current_request.song_name,self.server.current_request.url
+        self.playlist[songname] = url
+        self.state = State.committed
+      else:
+        # maybe raise an error not sure? log something maybe
 
-      songname,url = self.server.current_request.song_name,self.server.current_request.url
-      self.playlist[songname] = url
-      self.state = State.committed
-
-      # not sure what notifying will do here possibly
-      # something that needs to be done after commiting?
-      # might not need to notify here
-      self.main_process_wait.notify()
 
   # coordinator received messages vote,acks
   def _voteHandler(msg,server):
     with server.global_lock:
-      self.number_yes+=1
-      if self.number_yes == len(self.other_procs):
-        self.coordinator_state = CoordinatorState.send_precommit
-        
-        # wakeup the main thread
-        self.main_process_wait.notify()
+      if (self.coordinator_state == votereq):
+        self.number_yes+=1
+        if self.number_yes == len(self.other_procs):
+          self.state = State.committable
+          self.coordinator_state = CoordinatorState.precommit
+          for procs in self.alive_set:
+            serialized = precommit.serialize()
+            procs.send(serialized)
 
         
   def _ackHandler(msg,server):
     with server.global_lock:
-      self.ack_phase_responded+=1
-      if self.ack_phase_responded == len(self.other_procs):
-        self.coordinator_state = CoordinatorState.completed
-        
-        # wakeup the main thread
-        self.main_process_wait.notify()
+      if (self.coordinator_state == precommit)
+        server.increment_ack_phase_responded()
+        if self.ack_phase_responded == len(self.other_procs):
+
+          server.coordinator_state = CoordinatorState.completed
+          server.state = State.committed
+
+          decision = Decision(self.pid,Decision.commit)
+
+          # the server commits when he receives all the acks
+          server.commitCurRequest()
+
+          for procs in self.other_procs:
+            serialized = decision.serialize()
+            procs.send(serialized)
+
 
   def send(self, s):
       if self.valid:
@@ -307,6 +329,11 @@ class Server:
   """
   
   def __init__(self, pid, n, port, leader):
+    self.commandRequestExecutors = {
+        Add.msg_type: self._add_commit_handler,
+        Delete.msg_type: self._delete_commit_handler,
+    }
+
     # all the instance variables in here are "global states" for the server
     self.leader = leader
     self.pid = pid
@@ -371,100 +398,29 @@ class Server:
         print sys.exc_info()
         print("Error connecting to port: {}".format(port_to_connect))
 
+  def increment_ack_phase_responded(self):
+    self.ack_phase_responded+=1
 
-  def run(self):
-    while True:
-      if self.leader:
-        self.coordinator_run()
-      else:
-        self.participant_run()
+  def commit_cur_request(self):
+    if self.current_request != None:
+      self.commandRequestExecutors[self.current_request.msg_type](self.current_request)
 
+  def _add_commit_handler(self,request):
+    songname,url = self.current_request.song_name,self.current_request.url
+    self.playlist[songname] = url
+    self.current_request = None
 
-  def coordinator_run(self): 
-    with self.global_lock:
-      prev_coordState = self.coordinator_state
-      prev_state = self.state
-      while (prev_state == self.state and prev_coordState == self.coordinator_state):
-        self.main_process_wait.wait()
+  def _delete_commit_handler(self,request):
+    songname = self.current_request.song_name
+    del self.playlist[songname]
+    self.current_request = None
 
-      # use the dictionary paradigm with the state
-      if (self.coordinator_state == send_votereq):
-        voteReq = VoteReq(self.pid, data)
-
-        for procs in self.other_procs:
-          serialized = voteReq.serialize()
-          procs.send(serialized)
-          self.coordinator_state = CoordinatorState.wait_votes
-
-      # if you think of coordinator as also a participant
-      # he would receive immediately since there is no
-      # latency thus after sending to everyone he can
-      # automatically switch his state while the other
-      # partcipants switch it when they receive the message
-      self.state = State.uncertain
-
-      elif (self.coordinator_state == CoordinatorState.wait_votes):
-        # as the coordinator if woken up here it's because shit hit the fan
-        # and a participant channel died send an abort to everyone
-        # your state shouldve changed to abort from uncertain
-        decision = Decision(self.pid,Decision.abort)
-
-        for procs in self.other_procs:
-          serialized = decision.serialize()
-          procs.send(serialized)
-          self.coordinator_state = CoordinatorState.standby     
-
-      # participant listeners will wakeup and change from state
-      # wait_vote to send_precommit
-      # TODO I just copy pasted the same as above but the rule is
-      # to collect the people still alive
-      # we need two dictionary a mapping of pid -> channel
-      # and some way to keep track of alive ones
-      elif (self.coordinator_state == CoordinatorState.send_precommit):
-        precommit = VoteReq(self.pid)
-
-        for procs in self.alive_set:
-          serialized = precommit.serialize()
-          procs.send(serialized)
-          self.coordinator_state = CoordinatorState.wait_acks
-
-        # if you think of coordinator as also a participant
-        # he would receive immediately since there is no
-        # latency thus after sending to everyone he can
-        # automatically switch his state while the other
-        # partcipants switch it when they receive the message
-        self.state = State.committable
-
-      elif (self.coordinator_state == wait_acks):
-        # in this case if woken up here im not sure what
-        # it's most likely some sort of error handling that needs
-        # to be sent to people
-
-      # participant listenres will wakeup and change from state
-      # wait_acks to send completed
-      elif (self.coordinator_state == completed):
-        decision = Decision(self.pid,Decision.commit)
-
-        for procs in self.other_procs:
-          serialized = decision.serialize()
-          procs.send(serialized)
-          self.coordinator_state = CoordinatorState.standby     
-
-        
-
-        # if you think of coordinator as also a participant
-        # he would receive immediately since there is no
-        # latency thus after sending to everyone he can
-        # automatically switch his state while the other
-        # partcipants switch it when they receive the message
-        self.state = State.committed
-        songname,url = self.current_request.song_name,self.current_request.url
-        self.playlist[songname] = url
 
   def resetState():
     with self.global_lock:
-
-
-  def participant_run(self):
+      ack_phase_responded = 0
+      number_yes = 0
+      self.state = State.aborted
+      self.coordinator_state = CoordinatorState.standby
 
 
