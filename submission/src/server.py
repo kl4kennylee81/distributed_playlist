@@ -5,9 +5,10 @@ from threading import Thread, Lock, RLock
 import socket
 from socket import SOCK_STREAM, AF_INET
 from messages import *
-from responseMessages import *
+from response_messages import *
+from request_messages import *
 from constants import *
-from crashRequests import *
+from crash_request_messages import *
 from collections import deque
 
 
@@ -30,8 +31,13 @@ class MasterClientHandler(Thread):
       Add.msg_type: self._add_handler,
       Get.msg_type: self._get_handler,
       Delete.msg_type: self._delete_handler,
-
-
+      CrashRequest.msg_type: self._crash_handler,
+      VoteNoRequest.msg_type: self._voteNo_handler,
+      CrashAfterVoteRequest.msg_type: self._crashAfterVote_handler,
+      CrashAfterAckRequest.msg_type: self._crashAfterAck_handler,
+      CrashVoteRequest.msg_type: self._crashVoteRequest_handler,
+      CrashPartialPrecommit.msg_type: self._crashPartialPrecommit_handler,
+      CrashPartialCommit.msg_type: self._crashPartialCommit_handler,
     }
 
   def run(self):
@@ -52,8 +58,7 @@ class MasterClientHandler(Thread):
   def _add_handler(self, deserialized, server):
     with server.global_lock:
       server.add_request(deserialized)
-      #server.setCoordinatorState(CoordinatorState.votereq)
-      print("are we in the add handler\n")
+      server.setCoordinatorState(CoordinatorState.votereq)
       voteReq = VoteReq(server.pid, deserialized.serialize())
 
       server.broadCastMessage(voteReq)
@@ -78,6 +83,27 @@ class MasterClientHandler(Thread):
   def send(self, s):
     with self.server.global_lock:
       self.master_conn.send(str(s))
+
+  def _crash_handler(self, deserialized, server):
+    pass
+
+  def _voteNo_handler(self,deserialized,server):
+    pass
+
+  def _crashAfterVote_handler(self,deserialized,server):
+    pass
+
+  def _crashAfterAck_handler(self,deserialized,server):
+    pass
+
+  def _crashVoteRequest_handler(self,deserialized,server):
+    pass
+
+  def _crashPartialPrecommit_handler(self,deserialized,server):
+    pass
+
+  def _crashPartialCommit_handler(self,deserialized,server):
+    pass
 
 
 class ClientConnectionHandler(Thread):
@@ -151,10 +177,6 @@ class ClientConnectionHandler(Thread):
       data = self.conn.recv(BUFFER_SIZE)
 
       msg = deserialize_message(str(data))
-
-      print(msg)
-
-      print(data)
 
       if self.server.getLeader():
         self.coordinatorRecv(msg)
@@ -251,7 +273,7 @@ class ClientConnectionHandler(Thread):
         # in the recovery mode you would check the response id (rid)
         # of the voteReq and also update your state to become consistent
 
-        request = deserialize_client_req(msg.request,server.pid)
+        request = deserialize_client_request(msg.request,server.pid)
         server.add_request(request)
 
         voteRes = Vote(server.pid,Choice.yes)
@@ -306,7 +328,6 @@ class ClientConnectionHandler(Thread):
   def send(self, s):
     with self.server.global_lock:
         if self.isValid():
-          print("We are sending {}\n".format(s))
           self.conn.send(str(s))
 
   def close(self):
@@ -529,7 +550,7 @@ class Server:
 
   def setCoordinatorState(self,newCoordState):
     with self.global_lock:
-      while self.isValid():
+      if self.isValid():
         self.coordinator_state = newCoordState
         if newCoordState == CoordinatorState.standby:
           self.setState(State.aborted)
@@ -582,7 +603,6 @@ class Server:
   def broadCastMessage(self,msg):
     with self.global_lock:
       if self.isValid():
-        print("we are broadcasting {}\n",msg)
         for proc in self.cur_request_set:
           serialized = msg.serialize()
           proc.send(serialized)

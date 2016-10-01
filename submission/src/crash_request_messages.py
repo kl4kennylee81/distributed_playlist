@@ -1,68 +1,62 @@
 from constants import *
 from abc import ABCMeta, abstractmethod
 import json
-from messages import deserialize_client_command_request
+from request_messages import Request,deserialize_client_command_request
 
-class ForcedRequest(object):
-
-  def __init__(self, pid, forced_type): 
-    self.pid = int(pid)
-    self.type = forced_type
-
-class CrashRequest(ForcedRequest):
-  forced_type = ForcedType.crash
+class CrashRequest(Request):
+  msg_type = ForcedType.crash
 
   def __init__(self,pid):
-    super(CrashRequest, self).__init__(pid, CrashRequest.forced_type)
+    super(CrashRequest, self).__init__(pid, CrashRequest.msg_type)
 
 # format vote NO
-class VoteNoRequest(ForcedRequest):
-  forced_type = ForcedType.voteNo
+class VoteNoRequest(Request):
+  msg_type = ForcedType.voteNo
 
   def __init__(self, pid): 
-    super(VoteNoRequest, self).__init__(pid, VoteNoRequest.forced_type)
+    super(VoteNoRequest, self).__init__(pid, VoteNoRequest.msg_type)
 
 
 # format crashAfterVote
-class CrashAfterVoteRequest(ForcedRequest):
-  forced_type = ForcedType.crashAfterVote
+class CrashAfterVoteRequest(Request):
+  msg_type = ForcedType.crashAfterVote
 
   def __init__(self, pid): 
-    super(CrashAfterVoteRequest, self).__init__(pid, CrashAfterVoteRequest.forced_type)
+    super(CrashAfterVoteRequest, self).__init__(pid, CrashAfterVoteRequest.msg_type)
 
 # format crashAfterAck
-class CrashAfterAckRequest(ForcedRequest):
-  forced_type = ForcedType.crashAfterAck
+class CrashAfterAckRequest(Request):
+  msg_type = ForcedType.crashAfterAck
 
   def __init__(self, pid): 
-    super(CrashAfterAckRequest, self).__init__(pid, CrashAfterAckRequest.forced_type)
+    super(CrashAfterAckRequest, self).__init__(pid, CrashAfterAckRequest.msg_type)
 
 # format is crashVoteREQ 2 3
-class CrashVoteRequest(ForcedRequest):
-  forced_type = ForcedType.crashVoteReq
+class CrashVoteRequest(Request):
+  msg_type = ForcedType.crashVoteReq
 
   def __init__(self, pid, start, end): 
-    super(CrashVoteRequest, self).__init__(pid, CrashVoteRequest.forced_type)
+    super(CrashVoteRequest, self).__init__(pid, CrashVoteRequest.msg_type)
 
     self.start = start
     self.end = end
 
 # format is crashPartialPreCommit 2 3
-class CrashPartialPrecommit(ForcedRequest):
-  forced_type = ForcedType.crashPartialPrecommit
+class CrashPartialPrecommit(Request):
+  msg_type = ForcedType.crashPartialPrecommit
 
   def __init__(self, pid, start, end): 
-    super(CrashPartialPrecommit, self).__init__(pid, CrashPartialPrecommit.forced_type)
+    super(CrashPartialPrecommit, self).__init__(pid, CrashPartialPrecommit.msg_type)
 
     self.start = start
     self.end = end
 
 # format is crashPartialCommit 2 3
-class CrashPartialCommit(ForcedRequest):
-  forced_type = ForcedType.crashPartialCommit
+class CrashPartialCommit(Request):
+  msg_type = ForcedType.crashPartialCommit
 
   def __init__(self, pid, start, end): 
-    super(CrashPartialCommit, self).__init__(pid, CrashPartialCommit.forced_type)
+    super(CrashPartialCommit, self).__init__(pid, CrashPartialCommit.msg_type)
 
     self.start = start
     self.end = end
