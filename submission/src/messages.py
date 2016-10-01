@@ -25,7 +25,7 @@ class Vote(Message):
 
   def __init__(self, pid, choice): 
     super(Vote, self).__init__(pid, Vote.msg_type) 
-    self.choice = Choice[choice.lower()]
+    self.choice = choice
 
   @classmethod
   def from_json(cls, my_json): 
@@ -44,7 +44,7 @@ class Decision(Message):
 
   def __init__(self, pid, decision):
     super(Decision, self).__init__(pid, Decision.msg_type)
-    self.decision = Decision.Dec[decision.lower()]
+    self.decision = decision
 
   @classmethod
   def from_json(cls, my_json): 
@@ -69,7 +69,8 @@ class PreCommit(Message):
     return cls(my_json['pid'])
 
   def serialize(self): 
-    return super(PreCommit, self).serialize() 
+    undumped = super(PreCommit, self).serialize() 
+    return json.dumps(undumped)
 
 
 
@@ -85,7 +86,8 @@ class Recover(Message):
     return cls(my_json['pid'])
 
   def serialize(self): 
-    return super(Recover, self).serialize() 
+    undumped = super(PreCommit, self).serialize() 
+    return json.dumps(undumped)
 
 
 
@@ -104,7 +106,7 @@ class Reelect(Message):
   def serialize(self): 
     myJSON = super(Reelect, self).serialize() 
     myJSON['new_coord_pid'] = self.new_coord_pid
-    return myJSON
+    return json.dumps(myJSON)
 
 
 # VoteReq
@@ -122,7 +124,7 @@ class VoteReq(Message):
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
-    return myJSON
+    return json.dumps(myJSON)
 
 
 # StateReq 
@@ -137,7 +139,8 @@ class StateReq(Message):
     return cls(my_json['pid'])
 
   def serialize(self): 
-    return super(StateReq, self).serialize() 
+    undumped = super(StateReq, self).serialize() 
+    json.dumps(undumped)
 
 
 
@@ -156,20 +159,52 @@ class StateRepid(Message):
   def serialize(self): 
     myJSON = super(StateRepid, self).serialize() 
     myJSON['state'] = self.state.name
-    return myJSON
+    return json.dumps(myJSON)
+
+# Ack
+class Ack(Message): 
+  msg_type = 9
+
+  def __init__(self, pid): 
+    super(Ack, self).__init__(pid, Ack.msg_type)
+
+  @classmethod
+  def from_json(cls, my_json):
+    return cls(my_json['pid'])
+
+  def serialize(self): 
+    myJSON = super(Ack, self).serialize() 
+    return json.dumps(myJSON)
+
+class Identifier(Message):
+
+  msg_type = 10
+
+  def __init__(self,pid):
+    super(Identifier, self).__init__(pid, Identifier.msg_type)
+
+  @classmethod
+  def from_json(cls, my_json):
+    return cls(my_json['pid'])
+
+  def serialize(self):
+    myJSON = super(Identifier, self).serialize() 
+    return json.dumps(myJSON)
 
 
 # Constructors to be called in deserialize on a per-
 # msg_type basis 
 MSG_CONSTRUCTORS = { 
+  VoteReq.msg_type: VoteReq, 
   Vote.msg_type: Vote, 
-  Decision.msg_type: Decision, 
   PreCommit.msg_type: PreCommit, 
+  Ack.msg_type: Ack,
+  Decision.msg_type: Decision, 
   Recover.msg_type: Recover, 
   Reelect.msg_type: Reelect,
-  VoteReq.msg_type: VoteReq, 
   StateReq.msg_type: StateReq,
-  StateRepid.msg_type: StateRepid
+  StateRepid.msg_type: StateRepid,
+  Identifier.msg_type: Identifier,
 }
 
 
@@ -184,19 +219,19 @@ def deserialize_message(msg_string):
 
 # Add 
 class Add(Message): 
-  msg_type = 9
+  msg_type = 11
 
   def __init__(self, pid, song_name, url): 
     super(Add, self).__init__(pid, Add.msg_type)
     self.song_name = song_name
     self.url = url
-
+    
   def serialize(self):
-    return "add " + self.song_name + "," + self.url
+    return "add " + self.song_name + " " + self.url
 
 # Delete 
 class Delete(Message): 
-  msg_type = 10 
+  msg_type = 12
 
   def __init__(self, pid, song_name): 
     super(Delete, self).__init__(pid, Delete.msg_type)
@@ -205,10 +240,9 @@ class Delete(Message):
   def serialize(self):
     return "delete " + self.song_name
 
-
 # Get 
 class Get(Message): 
-  msg_type = 11
+  msg_type = 13
 
   def __init__(self, pid, song_name): 
     super(Get, self).__init__(pid, Get.msg_type)

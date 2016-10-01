@@ -13,7 +13,7 @@ Request = Enum('Request', 'add get delete')
 Choice = Enum('Choice', 'yes no')
 
 # Possible decisions 
-Dec = Enum('Decision', 'commit abort')
+Decide = Enum('Decide', 'commit abort')
 
 
 
