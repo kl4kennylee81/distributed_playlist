@@ -179,15 +179,18 @@ class Identifier(Message):
 
   msg_type = 10
 
-  def __init__(self,pid):
+  def __init__(self,pid,isLeader):
     super(Identifier, self).__init__(pid, Identifier.msg_type)
+    self.isLeader = isLeader
+
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'])
+    return cls(my_json['pid'],my_json['isLeader'])
 
   def serialize(self):
-    myJSON = super(Identifier, self).serialize() 
+    myJSON = super(Identifier, self).serialize()
+    myJSON['isLeader'] = self.isLeader
     return json.dumps(myJSON)
 
 

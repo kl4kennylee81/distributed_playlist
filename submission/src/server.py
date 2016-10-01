@@ -176,7 +176,7 @@ class ClientConnectionHandler(Thread):
       return self.valid and self.server.isValid()
 
   def run(self):
-    id_msg = Identifier(self.server.pid)
+    id_msg = Identifier(self.server.pid,self.server.isLeader())
     self.send(id_msg.serialize())
     # I commented out the try except for debugging
     # try:
@@ -185,7 +185,9 @@ class ClientConnectionHandler(Thread):
 
       msg = deserialize_message(str(data))
 
-      if self.server.getLeader():
+      print(msg)
+
+      if self.server.isLeader():
         self.coordinatorRecv(msg)
       else:
         self.participantRecv(msg)
@@ -204,7 +206,7 @@ class ClientConnectionHandler(Thread):
       #   # would delete the alive guy and increment the count
       #   # of acks responded
 
-      #   if (self.server.getLeader()):
+      #   if (self.server.isLeader()):
       #     self.coordinatorStateFailureHandler(self.server)
       #   else:
       #     self.participantStateFailureHandler(self.server)
@@ -284,7 +286,7 @@ class ClientConnectionHandler(Thread):
         server.add_request(request)
 
         choice = Choice.yes
-        forcedNo = server.popVoteNo_request()
+        forcedNo = server.pop_voteNo_request()
         if  forcedNo != None:
           choice = Choice.no
 
@@ -292,12 +294,12 @@ class ClientConnectionHandler(Thread):
         self.send(voteRes.serialize())
 
         # if participant crash
-        afterVoteCrash = server.pop_crashAfterVote_request():
+        afterVoteCrash = server.pop_crashAfterVote_request()
 
         # TODO change this if we keep track of the leader to
         # check if current leader == his own pid in a helper function
         # is leader
-        if afterVoteCrash != None and not server.getLeader():
+        if afterVoteCrash != None and not server.isLeader():
           server.exit()
 
 
@@ -310,7 +312,7 @@ class ClientConnectionHandler(Thread):
         self.send(ackRes.serialize())
 
         crashAfterAck = server.pop_crashAfterAck_request()
-        if crashAfterAck != None and not server.getLeader():
+        if crashAfterAck != None and not server.isLeader():
           server.exit()
 
 
@@ -334,6 +336,8 @@ class ClientConnectionHandler(Thread):
 
           crashPartialPreCommit = server.pop_crashPartialPrecommit()
           if crashPartialPreCommit != None:
+            pass
+          else:
             server.broadCastMessage(precommit)
 
         
@@ -430,7 +434,7 @@ class Server:
   to create new sockets for incoming connections
   """
   
-  def __init__(self, pid, n, port, leader):
+  def __init__(self, pid, n, port, isLeader):
     self.commandRequestExecutors = {
         Add.msg_type: self._add_commit_handler,
         Delete.msg_type: self._delete_commit_handler,
@@ -445,7 +449,15 @@ class Server:
 
     # Global State : coordinator
     # all the instance variables in here are "global states" for the server
-    self.leader = leader
+    
+    # leader flag will be set by the initial identifier message sent
+    # than it will be set by the recepient participant
+    # this allows this field to be updated to the current leader
+
+    # leader: the process id of the current leader
+    self.leader = -1
+    if isLeader:
+      self.leader = self.pid
 
     # Global State : is the whole server still active or crashing
     # when False join all the threads and then return
@@ -568,6 +580,10 @@ class Server:
   def getLeader(self):
     with self.global_lock:
       return self.leader
+
+  def isLeader(self):
+    with self.global_lock:
+      return self.getLeader() == self.pid
 
   def getCoordinatorState(self):
     with self.global_lock:
