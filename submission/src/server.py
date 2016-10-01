@@ -32,11 +32,14 @@ class MasterClientHandler(Thread):
     }
 
   def run(self):
-    while True:
+    while self.isValid():
       # TODO: logic for handling application requests
       data = self.master_conn.recv(BUFFER_SIZE)
       self._parse_data(data)
 
+  def isValid(self):
+    with self.server.global_lock:
+      return self.server.isValid()
 
   def _parse_data(self, data):
     deserialized = deserialize_client_req(data, self.server.pid)
@@ -131,12 +134,16 @@ class ClientConnectionHandler(Thread):
     result.server = server
     return result
 
+  def isValid(self):
+    with self.server.global_lock:
+      return self.valid and self.server.isValid()
+
   def run(self):
     id_msg = Identifier(self.server.pid)
     self.send(id_msg.serialize())
     # I commented out the try except for debugging
     # try:
-    while self.valid:
+    while self.isValid():
       data = self.conn.recv(BUFFER_SIZE)
 
       msg = deserialize_message(str(data))
@@ -317,6 +324,7 @@ class ServerConnectionHandler(Thread):
   def __init__(self, free_port_no, server):
     Thread.__init__(self)
     self.server = server
+    self.valid = True
 
     # this is what all the other participants connect to
     self.internal_server = socket.socket(AF_INET, SOCK_STREAM) 
@@ -324,8 +332,12 @@ class ServerConnectionHandler(Thread):
     self.internal_server.bind((ADDRESS, free_port_no))
     print "Initialized server socket at port {}".format(free_port_no)
 
+  def isValid(self):
+    with self.server.global_lock:
+      return self.server.isValid()
+
   def run(self):
-    while True:
+    while self.isValid():
       self.internal_server.listen(0)
       (conn, (ip,port)) = self.internal_server.accept()
       print("Pid {}: Connection Accepted".format(self.server.pid))
@@ -367,9 +379,6 @@ class Server:
         Delete.msg_type: self._delete_commit_handler,
     }
 
-    # all the instance variables in here are "global states" for the server
-    self.leader = leader
-
     # the pid is immutable you should never change this value after
     # the process starts. can access without a lock
     self.pid = pid
@@ -377,11 +386,14 @@ class Server:
     # Global State : global lock
     self.global_lock = RLock()
 
-    # Global State: the current request id this server is working on
-    self.rid = 0
+    # Global State : coordinator
+    # all the instance variables in here are "global states" for the server
+    self.leader = leader
 
-    # Global State: a queue of requests to process
-    self.request_queue = deque()
+    # Global State : is the whole server still active or crashing
+    # when False join all the threads and then return
+    # OR do we just fail ungracefully and just do a sys exit
+    self.valid = True
 
     # Global State: current phase of the coordinator's 3 phase commit
     self.coordinator_state = CoordinatorState.standby
@@ -407,6 +419,31 @@ class Server:
     # Global State:
     # update other procs to be a mapping from pid -> thread
     self.other_procs = dict()
+
+    # GLOBAL FOR REQUEST COMMANDS
+    # Global State: the current request id this server is working on
+    self.rid = 0
+
+    # Global State: a queue of requests to process
+    self.request_queue = deque()
+
+    # CRASHING COMMAND GLOBAL QUEUES
+    self.crash_queue = deque()
+
+    # PARTCIPANT CRASH QUEUE
+    self.voteNo_queue = deque()
+
+    self.crashAfterVote_queue = deque()
+
+    self.crashAfterAck_queue = deque()
+
+    # COORDINATOR CRASH QUEUE
+    self.crashVoteReq_queue = deque()
+
+    self.crashPartialPrecommit_queue = deque()
+
+    self.crashPartialCommit_queue = deque()
+
 
     self.master_server = socket.socket(AF_INET, SOCK_STREAM) 
     self.master_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -434,14 +471,20 @@ class Server:
         print sys.exc_info()
         print("Error connecting to port: {}".format(port_to_connect))
 
+  def isValid(self):
+    with self.global_lock:
+      return self.valid
+
   def setResponsesNeeded(self):
     with self.global_lock:
-      self.responsesNeeded = len(self.cur_request_set)
+      if self.valid:
+        self.responsesNeeded = len(self.cur_request_set)
 
   def decrementResponsesNeeded(self):
     with self.global_lock:
-      if self.getResponsesNeeded() > 0:
-        self.responsesNeeded-=1
+      if self.valid:
+        if self.getResponsesNeeded() > 0:
+          self.responsesNeeded-=1
 
   def getResponsesNeeded(self):
     with self.global_lock:
@@ -449,7 +492,9 @@ class Server:
 
   def hasAllResponsesNeeded(self):
     with self.global_lock:
-      return self.responsesNeeded == 0
+      if self.valid:
+        return self.responsesNeeded == 0
+      return False
 
   def incrementRid(self):
     with self.global_lock:
@@ -477,78 +522,88 @@ class Server:
 
   def setCoordinatorState(self,newCoordState):
     with self.global_lock:
-      self.coordinator_state = newCoordState
-      if newCoordState == CoordinatorState.standby:
-        self.setState(State.aborted)
-        self.resetState()
-        
-      elif newCoordState == CoordinatorState.votereq:
-        self.incrementRid()
-        self.setState(State.uncertain)
+      self.valid:
+        self.coordinator_state = newCoordState
+        if newCoordState == CoordinatorState.standby:
+          self.setState(State.aborted)
+          self.resetState()
+          
+        elif newCoordState == CoordinatorState.votereq:
+          self.incrementRid()
+          self.setState(State.uncertain)
 
-        self.setCurRequestProcesses()
+          self.setCurRequestProcesses()
 
-        self.setResponsesNeeded()
-      elif newCoordState == CoordinatorState.precommit:
-        self.setState(State.committable)
-        self.setResponsesNeeded()
-      elif newCoordState == CoordinatorState.completed:
-        self.setState(State.committed)
+          self.setResponsesNeeded()
+        elif newCoordState == CoordinatorState.precommit:
+          self.setState(State.committable)
+          self.setResponsesNeeded()
+        elif newCoordState == CoordinatorState.completed:
+          self.setState(State.committed)
 
   def setCurRequestProcesses(self):
     with self.global_lock:
-      newAliveSet = set()
-      for pid,proc in self.other_procs.iteritems():
-        newAliveSet.add(proc)
-      self.cur_request_set = newAliveSet
+      if self.valid:
+        newAliveSet = set()
+        for pid,proc in self.other_procs.iteritems():
+          newAliveSet.add(proc)
+        self.cur_request_set = newAliveSet
 
   def setState(self,newState):
     with self.global_lock:
-      self.state = newState
+      if self.valid:
+        self.state = newState
 
   def newParticipant(pid,new_thread):
     with self.global_lock:
-      self.server.other_procs[pid] = new_client_thread
+      if self.valid:
+        self.server.other_procs[pid] = new_client_thread
 
 
   def add_request(self,request):
     with self.global_lock:
-      self.request_queue.append(request)
+      if self.valid:
+        self.request_queue.append(request)
 
   def getUrl(self,songname):
     with self.global_lock:
-      if songname in self.playlist:
-        return self.playlist[songname]
-      return None
+      if self.valid:
+        if songname in self.playlist:
+          return self.playlist[songname]
+        return None
 
   def broadCastMessage(self,msg):
     with self.global_lock:
-      for proc in self.cur_request_set:
-        serialized = msg.serialize()
-        proc.send(serialized)
+      if self.valid:
+        for proc in self.cur_request_set:
+          serialized = msg.serialize()
+          proc.send(serialized)
 
   def commit_cur_request(self):
     with self.global_lock:
-      current_request = self.request_queue.popleft()
-      if current_request != None:
-        self.commandRequestExecutors[current_request.msg_type](current_request)
-        self.state = State.committed
+      if self.valid:
+        current_request = self.request_queue.popleft()
+        if current_request != None:
+          self.commandRequestExecutors[current_request.msg_type](current_request)
+          self.state = State.committed
 
   def coordinator_commit_cur_request(self):
     with self.global_lock:
-      self.coordinator_state = CoordinatorState.completed
-      self.commit_cur_request()
+    if self.valid:
+        self.coordinator_state = CoordinatorState.completed
+        self.commit_cur_request()
 
   def _add_commit_handler(self,request):
     with self.global_lock:
-      songname,url = request.song_name,request.url
-      self.playlist[songname] = url
+    if self.valid:
+        songname,url = request.song_name,request.url
+        self.playlist[songname] = url
 
   def _delete_commit_handler(self,request):
-    print("{} is deleting the entry".format(self.pid))
     with self.global_lock:
-      songname = request.song_name
-      del self.playlist[songname]
+    if self.valid:
+        songname = request.song_name
+        del self.playlist[songname]
 
 
   def resetState(self):
@@ -556,5 +611,12 @@ class Server:
       self.responsesNeeded = sys.maxint
       self.state = State.aborted
       self.coordinator_state = CoordinatorState.standby
+
+  def exit(self):
+    # We eithe issue a signal kill
+    # or we join all the threads adn fail gracefully
+    
+    
+
 
 

@@ -253,7 +253,7 @@ class Get(Message):
 
 
 # Deserialize the Client Request 
-def deserialize_client_req(msg_string, pid): 
+def deserialize_client_command_request(msg_string, pid): 
   # Trim white space, split, and clean of extra spacing 
   msg_string = msg_string.strip() 
   msg_list = msg_string.split(" ")
@@ -263,8 +263,10 @@ def deserialize_client_req(msg_string, pid):
     return Add(pid, msg_list[1], msg_list[2])
   elif msg_list[0].lower() == "delete":
     return Delete(pid, msg_list[1])
-  else: 
+  elif msg_list[0].lower == "get"
     return Get(pid, msg_list[1])
+  else:
+    return None
 
 
 

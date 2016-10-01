@@ -15,6 +15,8 @@ Choice = Enum('Choice', 'yes no')
 # Possible decisions 
 Decide = Enum('Decide', 'commit abort')
 
+Forced_type = Enum('ForcedType', 'crash voteNo crashAfterVote crashAfterAck crashVoteReq crashPartialPrecommit crashPartialCommit')
+
 
 
 
