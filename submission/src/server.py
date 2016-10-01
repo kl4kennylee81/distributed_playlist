@@ -76,7 +76,7 @@ class MasterClientHandler(Thread):
       else:
         server.broadCastMessage(voteReq)
 
-    def _add_handler(self, deserialized, server):
+  def _add_handler(self, deserialized, server):
     with server.global_lock:
       self._transaction_handler(deserialized,server)
 
@@ -126,8 +126,8 @@ class ClientConnectionHandler(Thread):
 
   def __init__(self):
     Thread.__init__(self)
+    self.client_pid = -1
     self.participant_handlers = {
-      self.client_pid = -1
       # These are coordinator sent messages ###
       VoteReq.msg_type: self._voteReqHandler,
       PreCommit.msg_type: self._preCommitHandler, 

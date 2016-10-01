@@ -35,31 +35,28 @@ class CrashAfterAckRequest(Request):
 class CrashVoteRequest(Request):
   msg_type = ForcedType.crashVoteReq
 
-  def __init__(self, pid, start, end): 
+  def __init__(self, pid, sendTopid): 
     super(CrashVoteRequest, self).__init__(pid, CrashVoteRequest.msg_type)
 
-    self.start = start
-    self.end = end
+    self.sendTopid = map(int,sendTopid)
 
 # format is crashPartialPreCommit 2 3
 class CrashPartialPrecommit(Request):
   msg_type = ForcedType.crashPartialPrecommit
 
-  def __init__(self, pid, start, end): 
+  def __init__(self, pid, sendTopid): 
     super(CrashPartialPrecommit, self).__init__(pid, CrashPartialPrecommit.msg_type)
 
-    self.start = start
-    self.end = end
+    self.sendTopid = map(int,sendTopid)
 
 # format is crashPartialCommit 2 3
 class CrashPartialCommit(Request):
   msg_type = ForcedType.crashPartialCommit
 
-  def __init__(self, pid, start, end): 
+  def __init__(self, pid, sendTopid): 
     super(CrashPartialCommit, self).__init__(pid, CrashPartialCommit.msg_type)
 
-    self.start = start
-    self.end = end
+    self.sendTopid = map(int,sendTopid)
 
 # Deserialize the Client Request 
 def deserialize_client_request(msg_string, pid):
@@ -80,12 +77,11 @@ def deserialize_client_request(msg_string, pid):
   elif msg_list[0].lower() == "crashafterack": 
     return CrashAfterAckRequest(pid)
   elif msg_list[0].lower() == "crashvotereq": 
-    return CrashVoteRequest(pid,int(msg_list[1]), int(msg_list[2]))
+    return CrashVoteRequest(pid,msg_list[1:])
   elif msg_list[0].lower() == "crashpartialprecommit":
-    return CrashPartialPrecommit(pid,int(msg_list[1]), int(msg_list[2]))
+    return CrashPartialPrecommit(pid,msg_list[1:])
   elif msg_list[0].lower() == "crashpartialcommit":
-    return CrashPartialCommit(pid,int(msg_list[1]), int(msg_list[2]))
-
+    return CrashPartialCommit(pid,msg_list[1:])
   else:
     # Malformed message then
     return None
