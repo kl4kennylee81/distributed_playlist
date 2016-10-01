@@ -283,8 +283,23 @@ class ClientConnectionHandler(Thread):
         request = deserialize_client_request(msg.request,server.pid)
         server.add_request(request)
 
-        voteRes = Vote(server.pid,Choice.yes)
+        choice = Choice.yes
+        forcedNo = server.popVoteNo_request()
+        if  forcedNo != None:
+          choice = Choice.no
+
+        voteRes = Vote(server.pid,choice)
         self.send(voteRes.serialize())
+
+        # if participant crash
+        afterVoteCrash = server.pop_crashAfterVote_request():
+
+        # TODO change this if we keep track of the leader to
+        # check if current leader == his own pid in a helper function
+        # is leader
+        if afterVoteCrash != None and not server.getLeader():
+          server.exit()
+
 
   def _preCommitHandler(self,msg,server):
     with server.global_lock:
@@ -293,6 +308,10 @@ class ClientConnectionHandler(Thread):
 
         ackRes = Ack(server.pid)
         self.send(ackRes.serialize())
+
+        crashAfterAck = server.pop_crashAfterAck_request()
+        if crashAfterAck != None and not server.getLeader():
+          server.exit()
 
 
   def _decisionHandler(self,msg,server):
@@ -312,7 +331,10 @@ class ClientConnectionHandler(Thread):
           server.setCoordinatorState(CoordinatorState.precommit)
           
           precommit = PreCommit(server.pid)
-          server.broadCastMessage(precommit)
+
+          crashPartialPreCommit = server.pop_crashPartialPrecommit()
+          if crashPartialPreCommit != None:
+            server.broadCastMessage(precommit)
 
         
   def _ackHandler(self,msg,server):
@@ -632,6 +654,48 @@ class Server:
   def add_crashPartialCommit(self,request):
     with self.global_lock:
       self.crashPartialCommit_queue.append(request)
+
+  def pop_voteNo_request(self):
+    with self.global_lock:
+      if self.voteNo_queue: 
+        self.voteNo_queue.popleft()
+      else:
+        return None
+
+  def pop_crashAfterVote_request(self):
+    with self.global_lock:
+      if self.crashAfterVote_queue: 
+        self.crashAfterVote_queue.popleft()
+      else:
+        return None
+
+  def pop_crashAfterAck_request(self):
+    with self.global_lock:
+      if self.crashAfterAck_queue: 
+        self.crashAfterAck_queue.popleft()
+      else:
+        return None
+
+  def pop_crashVoteReq_request(self):
+    with self.global_lock:
+      if self.crashVoteReq_queue: 
+        self.crashVoteReq_queue.popleft()
+      else:
+        return None
+
+  def pop_crashPartialPrecommit(self):
+    with self.global_lock:
+      if self.crashPartialPrecommit_queue: 
+        self.crashPartialPrecommit_queue.popleft()
+      else:
+        return None
+
+  def pop_crashPartialCommit(self):
+    with self.global_lock:
+      if self.crashPartialCommit_queue: 
+        self.crashPartialCommit_queue.popleft()
+      else:
+        return None
 
 
   def getUrl(self,songname):
