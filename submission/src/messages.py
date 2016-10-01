@@ -24,7 +24,7 @@ class Vote(Message):
 
   def __init__(self, pid, choice): 
     super(Vote, self).__init__(pid, Vote.msg_type) 
-    self.choice = Choice[choice.lower()]
+    self.choice = choice
 
   @classmethod
   def from_json(cls, my_json): 
@@ -43,7 +43,7 @@ class Decision(Message):
 
   def __init__(self, pid, decision):
     super(Decision, self).__init__(pid, Decision.msg_type)
-    self.decision = Decision.Dec[decision.lower()]
+    self.decision = decision
 
   @classmethod
   def from_json(cls, my_json): 
@@ -165,7 +165,7 @@ class Ack(Message):
   msg_type = 9
 
   def __init__(self, pid): 
-    super(Ack self).__init__(pid, Ack.msg_type)
+    super(Ack, self).__init__(pid, Ack.msg_type)
 
   @classmethod
   def from_json(cls, my_json):
@@ -173,6 +173,21 @@ class Ack(Message):
 
   def serialize(self): 
     myJSON = super(Ack, self).serialize() 
+    return json.dumps(myJSON)
+
+class Identifier(Message):
+
+  msg_type = 10
+
+  def __init__(self,pid):
+    super(Identifier, self).__init__(pid, Identifier.msg_type)
+
+  @classmethod
+  def from_json(cls, my_json):
+    return cls(my_json['pid'])
+
+  def serialize(self):
+    myJSON = super(Identifier, self).serialize() 
     return json.dumps(myJSON)
 
 
@@ -187,7 +202,8 @@ MSG_CONSTRUCTORS = {
   Recover.msg_type: Recover, 
   Reelect.msg_type: Reelect,
   StateReq.msg_type: StateReq,
-  StateRepid.msg_type: StateRepid
+  StateRepid.msg_type: StateRepid,
+  Identifier.msg_type: Identifier,
 }
 
 
@@ -202,7 +218,7 @@ def deserialize_message(msg_string):
 
 # Add 
 class Add(Message): 
-  msg_type = 9
+  msg_type = 11
 
   def __init__(self, pid, song_name, url): 
     super(Add, self).__init__(pid, Add.msg_type)
@@ -217,7 +233,7 @@ class Add(Message):
 
 # Delete 
 class Delete(Message): 
-  msg_type = 10 
+  msg_type = 12
 
   def __init__(self, pid, song_name): 
     super(Delete, self).__init__(pid, Delete.msg_type)
@@ -230,7 +246,7 @@ class Delete(Message):
 
 # Get 
 class Get(Message): 
-  msg_type = 11
+  msg_type = 13
 
   def __init__(self, pid, song_name): 
     super(Get, self).__init__(pid, Get.msg_type)
