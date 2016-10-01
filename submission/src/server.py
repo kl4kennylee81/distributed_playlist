@@ -55,14 +55,6 @@ class MasterClientHandler(Thread):
     deserialized = deserialize_client_request(data, self.server.pid)
     self.handlers[deserialized.type](deserialized, self.server)
 
-  def _add_handler(self, deserialized, server):
-    with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-      voteReq = VoteReq(server.pid, deserialized.serialize())
-
-      server.broadCastMessage(voteReq)
-
   def _get_handler(self, deserialized, server):
     with server.global_lock:
       # deliver back to the master client
@@ -71,14 +63,26 @@ class MasterClientHandler(Thread):
 
       self.send(url_resp.serialize())
 
-  def _delete_handler(self, deserialized, server):
+  def _transaction_handler(self,deserialized,server):
     with server.global_lock:
       server.add_request(deserialized)
       server.setCoordinatorState(CoordinatorState.votereq)
-
       voteReq = VoteReq(server.pid, deserialized.serialize())
 
-      server.broadCastMessage(voteReq)
+      crashAfterVoteReq = server.pop_crashVoteReq_request()
+      if crashAfterVoteReq != None:
+        server.broadCastMessage(voteReq,crashAfterVoteReq.sendTopid)
+        server.exit()
+      else:
+        server.broadCastMessage(voteReq)
+
+    def _add_handler(self, deserialized, server):
+    with server.global_lock:
+      self._transaction_handler(deserialized,server)
+
+  def _delete_handler(self, deserialized, server):
+    with server.global_lock:
+      self._transaction_handler(deserialized,server)
 
   def send(self, s):
     with self.server.global_lock:
@@ -123,6 +127,7 @@ class ClientConnectionHandler(Thread):
   def __init__(self):
     Thread.__init__(self)
     self.participant_handlers = {
+      self.client_pid = -1
       # These are coordinator sent messages ###
       VoteReq.msg_type: self._voteReqHandler,
       PreCommit.msg_type: self._preCommitHandler, 
@@ -170,6 +175,14 @@ class ClientConnectionHandler(Thread):
     result.valid = True
     result.server = server
     return result
+
+  def setClientPid(self,client_pid):
+    with self.server.global_lock:
+      self.client_pid = client_pid
+
+  def getClientPid(self):
+    with self.server.global_lock:
+      return self.client_pid
 
   def isValid(self):
     with self.server.global_lock:
@@ -271,6 +284,7 @@ class ClientConnectionHandler(Thread):
 
   def _idHandler(self,msg,server):
     with server.global_lock:
+      self.setClientPid(msg.pid)
       server.other_procs[msg.pid] = self
 
   # Participant recieved messages votereq,precommit,decision #
@@ -336,7 +350,8 @@ class ClientConnectionHandler(Thread):
 
           crashPartialPreCommit = server.pop_crashPartialPrecommit()
           if crashPartialPreCommit != None:
-            pass
+            server.broadCastMessage(precommit,crashPartialPrecommit.sendTopid)
+            server.exit()
           else:
             server.broadCastMessage(precommit)
 
@@ -351,11 +366,23 @@ class ClientConnectionHandler(Thread):
           
           d = Decide.commit
           decision = Decision(server.pid,d)
-          server.broadCastMessage(decision)
+
+          crashPartialCommit = server.pop_crashPartialCommit()
+          if crashPartialCommit != None:
+            server.broadCastMessage(decision,crashPartialCommit.sendTopid)
+            server.exit()
+          else:
+            server.broadCastMessage(decision)
 
           respAck = ResponseAck(d)
 
           server.master_thread.send(respAck.serialize())
+
+          # TODO check if crash partial commit
+          # do we send the ack to the master before or after
+          # sending the partial broadcast. that is if there is
+          # a partial broadcast do we notify the master only if
+          # commit have been sent to everyone
 
 
   def send(self, s):
@@ -727,6 +754,14 @@ class Server:
         for proc in self.cur_request_set:
           serialized = msg.serialize()
           proc.send(serialized)
+
+  def broadCastMessage(self,msg,sendTopid):
+    with self.global_lock:
+      if self.isValid():
+        for proc in self.cur_request_set:
+          if proc.getClientPid() in sendTopid:
+            serialized = msg.serialize()
+            proc.send(serialized)
 
   def commit_cur_request(self):
     with self.global_lock:
