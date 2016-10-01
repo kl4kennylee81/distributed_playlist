@@ -6,7 +6,7 @@ class Storage:
 
   # Constructor 
   def __init__(self, pid): 
-    self.pid = pid 
+    self.pid = pid
     self.dt_log = './db/' + str(self.pid) + '_dt'
     self.disk = './db/' + str(self.pid) + '_disk'
     self.debug = './db/' + str(self.pid) + '_debug'
@@ -34,7 +34,7 @@ class Storage:
   def _write_to_file(self, file_name, a_log):
     with open(file_name, 'a') as f:
       f.write(a_log + "\n")
-    f.close() 
+    f.close()
 
   # Add a song as necessary to disk space 
   def write_song(self, song_name, song_url): 

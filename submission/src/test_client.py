@@ -1,29 +1,29 @@
 # Python TCP Client A
-import socket 
+import socket
 
 if __name__ == "__main__":
-	host = 'localhost'
-	port = 2004
-	BUFFER_SIZE = 2000 
-	MESSAGE = raw_input("tcpClientA: Enter message/ Enter exit:") 
-	
-	tcpClientA = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-	tcpClientA.connect((host, port))
+  host = 'localhost'
+  port = 2004
+  BUFFER_SIZE = 2000
+  MESSAGE = raw_input("tcpClientA: Enter message/ Enter exit:")
 
-	while True:
-	    tcpClientA.send(MESSAGE)
+  tcpClientA = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  tcpClientA.connect((host, port))
 
-	    # I want to quit connection with server
-	    if MESSAGE == 'exit':
-	    	break
+  while True:
+    tcpClientA.send(MESSAGE)
 
-	    data = tcpClientA.recv(BUFFER_SIZE)
-	    print " Client2 received data:", data
+    # I want to quit connection with server
+    if MESSAGE == 'exit':
+      break
 
-	    # server want's to quit connection
-	    if data == 'exit':
-	    	break
+    data = tcpClientA.recv(BUFFER_SIZE)
+    print " Client2 received data:", data
 
-	    MESSAGE = raw_input("tcpClientA: Enter message to continue/ Enter exit:")
-	 
-	tcpClientA.close() 
+    # server want's to quit connection
+    if data == 'exit':
+      break
+
+    MESSAGE = raw_input("tcpClientA: Enter message to continue/ Enter exit:")
+
+  tcpClientA.close()

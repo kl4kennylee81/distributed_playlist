@@ -40,18 +40,18 @@ class MasterClientHandler(Thread):
 
   def _parse_data(self, data):
     deserialized = deserialize_client_req(data, self.server.pid)
-    self.handlers[deserialized.type](deserialized, data, self.server)
+    self.handlers[deserialized.type](deserialized, self.server)
 
-  def _add_handler(self, deserialized, data, server):
+  def _add_handler(self, deserialized, server):
     with server.global_lock:
       server.add_request(deserialized)
       server.setCoordinatorState(CoordinatorState.votereq)
 
-      voteReq = VoteReq(server.pid, data)
+      voteReq = VoteReq(server.pid, deserialized.serialize())
 
       server.broadCastMessage(voteReq)
 
-  def _get_handler(self, deserialized, data, server):
+  def _get_handler(self, deserialized, server):
     with server.global_lock:
       # deliver back to the master client
       url = server.getUrl(deserialized.song_name)
@@ -59,12 +59,12 @@ class MasterClientHandler(Thread):
 
       self.send(url_resp.serialize())
 
-  def _delete_handler(self):
+  def _delete_handler(self, deserialized, server):
     with server.global_lock:
       server.add_request(deserialized)
       server.setCoordinatorState(CoordinatorState.votereq)
 
-      voteReq = VoteReq(server.pid, data)
+      voteReq = VoteReq(server.pid, deserialized.serialize())
 
       server.broadCastMessage(voteReq)
 
@@ -140,6 +140,8 @@ class ClientConnectionHandler(Thread):
       data = self.conn.recv(BUFFER_SIZE)
 
       msg = deserialize_message(str(data))
+
+      print(data)
 
       if self.server.getLeader():
         self.coordinatorRecv(msg)
@@ -230,7 +232,7 @@ class ClientConnectionHandler(Thread):
   # Participant recieved messages votereq,precommit,decision #
   def _voteReqHandler(self,msg,server):
     with server.global_lock:
-      if (server.getState() == State.aborted):
+      if (server.getState() == State.aborted or server.getState() == State.committed):
         server.setState(State.uncertain)
 
         # in the recovery mode you would check the response id (rid)
@@ -543,6 +545,7 @@ class Server:
       self.playlist[songname] = url
 
   def _delete_commit_handler(self,request):
+    print("{} is deleting the entry".format(self.pid))
     with self.global_lock:
       songname = request.song_name
       del self.playlist[songname]
