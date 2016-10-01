@@ -85,25 +85,32 @@ class MasterClientHandler(Thread):
       self.master_conn.send(str(s))
 
   def _crash_handler(self, deserialized, server):
-    pass
+    print("we made it crash")
+    self.server.add_crash_request(deserialized)
 
   def _voteNo_handler(self,deserialized,server):
-    pass
+    print("we made it vote no")
+    self.server.add_voteNo_request(deserialized)
 
   def _crashAfterVote_handler(self,deserialized,server):
-    pass
+    print("we made it crash after vote")
+    self.server.add_crashAfterVote_request(deserialized)
 
   def _crashAfterAck_handler(self,deserialized,server):
-    pass
+    print("we made it crash after ack")
+    self.server.add_crashAfterAck_request(deserialized)
 
   def _crashVoteRequest_handler(self,deserialized,server):
-    pass
+    print("we made it crash vote req")
+    self.server.add_crashVoteReq_request(deserialized)
 
   def _crashPartialPrecommit_handler(self,deserialized,server):
-    pass
+    print("we made it crash partial precommit")
+    self.server.add_crashPartialPrecommit(deserialized)
 
   def _crashPartialCommit_handler(self,deserialized,server):
-    pass
+    print("we made it crash partial commit")
+    self.server.add_crashPartialCommit(deserialized)
 
 
 class ClientConnectionHandler(Thread):
@@ -592,6 +599,40 @@ class Server:
     with self.global_lock:
       if self.isValid():
         self.request_queue.append(request)
+
+
+  def add_crash_request(self,request):
+    with self.global_lock:
+      # not sure if we need to queue
+      # up anything since you just fail
+      # automatically maybe a kill signal
+      # is all we need
+      self.crash_queue.append(request)
+
+  def add_voteNo_request(self,request):
+    with self.global_lock:
+      self.voteNo_queue.append(request)
+
+  def add_crashAfterVote_request(self,request):
+    with self.global_lock:
+      self.crashAfterVote_queue.append(request)
+
+  def add_crashAfterAck_request(self,request):
+    with self.global_lock:
+      self.crashAfterAck_queue.append(request)
+
+  def add_crashVoteReq_request(self,request):
+    with self.global_lock:
+      self.crashVoteReq_queue.append(request)
+
+  def add_crashPartialPrecommit(self,request):
+    with self.global_lock:
+      self.crashPartialPrecommit_queue.append(request)
+
+  def add_crashPartialCommit(self,request):
+    with self.global_lock:
+      self.crashPartialCommit_queue.append(request)
+
 
   def getUrl(self,songname):
     with self.global_lock:

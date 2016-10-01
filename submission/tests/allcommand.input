@@ -1,0 +1,8 @@
+0 start 1 10002
+0 crash
+0 vote NO
+0 crashAfterVote
+0 crashAfterAck
+0 crashVoteREQ 2 3
+0 crashPartialPreCommit 2 3
+0 crashPartialCommit 2 3
