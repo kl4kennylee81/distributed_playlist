@@ -7,6 +7,7 @@ from socket import SOCK_STREAM, AF_INET
 from messages import *
 from responseMessages import *
 from constants import *
+from crashRequests import *
 from collections import deque
 
 
@@ -29,12 +30,15 @@ class MasterClientHandler(Thread):
       Add.msg_type: self._add_handler,
       Get.msg_type: self._get_handler,
       Delete.msg_type: self._delete_handler,
+
+
     }
 
   def run(self):
     while self.isValid():
       # TODO: logic for handling application requests
       data = self.master_conn.recv(BUFFER_SIZE)
+
       self._parse_data(data)
 
   def isValid(self):
@@ -42,14 +46,14 @@ class MasterClientHandler(Thread):
       return self.server.isValid()
 
   def _parse_data(self, data):
-    deserialized = deserialize_client_req(data, self.server.pid)
+    deserialized = deserialize_client_request(data, self.server.pid)
     self.handlers[deserialized.type](deserialized, self.server)
 
   def _add_handler(self, deserialized, server):
     with server.global_lock:
       server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-
+      #server.setCoordinatorState(CoordinatorState.votereq)
+      print("are we in the add handler\n")
       voteReq = VoteReq(server.pid, deserialized.serialize())
 
       server.broadCastMessage(voteReq)
@@ -147,6 +151,8 @@ class ClientConnectionHandler(Thread):
       data = self.conn.recv(BUFFER_SIZE)
 
       msg = deserialize_message(str(data))
+
+      print(msg)
 
       print(data)
 
@@ -299,8 +305,9 @@ class ClientConnectionHandler(Thread):
 
   def send(self, s):
     with self.server.global_lock:
-        if self.valid:
-            self.conn.send(str(s))
+        if self.isValid():
+          print("We are sending {}\n".format(s))
+          self.conn.send(str(s))
 
   def close(self):
       try:
@@ -477,12 +484,12 @@ class Server:
 
   def setResponsesNeeded(self):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         self.responsesNeeded = len(self.cur_request_set)
 
   def decrementResponsesNeeded(self):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         if self.getResponsesNeeded() > 0:
           self.responsesNeeded-=1
 
@@ -492,7 +499,7 @@ class Server:
 
   def hasAllResponsesNeeded(self):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         return self.responsesNeeded == 0
       return False
 
@@ -522,7 +529,7 @@ class Server:
 
   def setCoordinatorState(self,newCoordState):
     with self.global_lock:
-      self.valid:
+      while self.isValid():
         self.coordinator_state = newCoordState
         if newCoordState == CoordinatorState.standby:
           self.setState(State.aborted)
@@ -543,7 +550,7 @@ class Server:
 
   def setCurRequestProcesses(self):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         newAliveSet = set()
         for pid,proc in self.other_procs.iteritems():
           newAliveSet.add(proc)
@@ -551,37 +558,38 @@ class Server:
 
   def setState(self,newState):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         self.state = newState
 
   def newParticipant(pid,new_thread):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         self.server.other_procs[pid] = new_client_thread
 
 
   def add_request(self,request):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         self.request_queue.append(request)
 
   def getUrl(self,songname):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         if songname in self.playlist:
           return self.playlist[songname]
         return None
 
   def broadCastMessage(self,msg):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
+        print("we are broadcasting {}\n",msg)
         for proc in self.cur_request_set:
           serialized = msg.serialize()
           proc.send(serialized)
 
   def commit_cur_request(self):
     with self.global_lock:
-      if self.valid:
+      if self.isValid():
         current_request = self.request_queue.popleft()
         if current_request != None:
           self.commandRequestExecutors[current_request.msg_type](current_request)
@@ -589,21 +597,21 @@ class Server:
 
   def coordinator_commit_cur_request(self):
     with self.global_lock:
-    if self.valid:
-        self.coordinator_state = CoordinatorState.completed
-        self.commit_cur_request()
+      if self.isValid():
+          self.coordinator_state = CoordinatorState.completed
+          self.commit_cur_request()
 
   def _add_commit_handler(self,request):
     with self.global_lock:
-    if self.valid:
-        songname,url = request.song_name,request.url
-        self.playlist[songname] = url
+      if self.isValid():
+          songname,url = request.song_name,request.url
+          self.playlist[songname] = url
 
   def _delete_commit_handler(self,request):
     with self.global_lock:
-    if self.valid:
-        songname = request.song_name
-        del self.playlist[songname]
+      if self.isValid():
+          songname = request.song_name
+          del self.playlist[songname]
 
 
   def resetState(self):
@@ -613,6 +621,7 @@ class Server:
       self.coordinator_state = CoordinatorState.standby
 
   def exit(self):
+    pass
     # We eithe issue a signal kill
     # or we join all the threads adn fail gracefully
     

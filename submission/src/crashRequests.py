@@ -1,12 +1,12 @@
 from constants import *
 from abc import ABCMeta, abstractmethod
 import json
-from messages import deserialize_client_request
+from messages import deserialize_client_command_request
 
 class ForcedRequest(object):
 
   def __init__(self, pid, forced_type): 
-    self.pid = pid 
+    self.pid = int(pid)
     self.type = forced_type
 
 class CrashRequest(ForcedRequest):
@@ -58,7 +58,7 @@ class CrashPartialPrecommit(ForcedRequest):
     self.end = end
 
 # format is crashPartialCommit 2 3
-class CrashPartialCommit(FOrcedRequest):
+class CrashPartialCommit(ForcedRequest):
   forced_type = ForcedType.crashPartialCommit
 
   def __init__(self, pid, start, end): 
@@ -85,12 +85,12 @@ def deserialize_client_request(msg_string, pid):
     return CrashAfterVoteRequest(pid)
   elif msg_list[0].lower() == "crashafterack": 
     return CrashAfterAckRequest(pid)
-  elif msg_list[0].lower() == "ccrashvotereq": 
+  elif msg_list[0].lower() == "crashvotereq": 
     return CrashVoteRequest(pid,int(msg_list[1]), int(msg_list[2]))
   elif msg_list[0].lower() == "crashpartialprecommit":
     return CrashPartialPrecommit(pid,int(msg_list[1]), int(msg_list[2]))
   elif msg_list[0].lower() == "crashpartialcommit":
-    returnCrashPartialCommit(pid,int(msg_list[1]), int(msg_list[2]))
+    return CrashPartialCommit(pid,int(msg_list[1]), int(msg_list[2]))
 
   else:
     # Malformed message then

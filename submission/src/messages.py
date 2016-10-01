@@ -8,7 +8,7 @@ class Message:
   __metaclass__ = ABCMeta
 
   def __init__(self, pid, msg_type): 
-    self.pid = pid 
+    self.pid = int(pid)
     self.type = msg_type
 
   """Un-dumped JSON for use in subclasses"""
@@ -263,7 +263,7 @@ def deserialize_client_command_request(msg_string, pid):
     return Add(pid, msg_list[1], msg_list[2])
   elif msg_list[0].lower() == "delete":
     return Delete(pid, msg_list[1])
-  elif msg_list[0].lower == "get"
+  elif msg_list[0].lower() == "get":
     return Get(pid, msg_list[1])
   else:
     return None
