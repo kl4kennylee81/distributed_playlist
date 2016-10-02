@@ -117,20 +117,21 @@ class VoteReq(Message):
   def __init__(self, pid, tid, request, transaction_diff=None):
     super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
     self.request = request
-    self.transaction_diff = transaction_diff # Instance of TransactionDiff
+    # self.transaction_diff = transaction_diff # Instance of TransactionDiff
 
   def hasTransactionDiff(self):
     return self.transaction_diff is not None
 
   @classmethod
   def from_json(cls, my_json):
-    txn_diff = TransactionDiff.from_json(my_json['transaction_diff'])
-    return cls(my_json['pid'], my_json['tid'], my_json['request'], txn_diff)
+    # txn_diff = TransactionDiff.from_json(my_json['transaction_diff'])
+    # return cls(my_json['pid'], my_json['tid'], my_json['request'], txn_diff)
+    return cls(my_json['pid'], my_json['tid'], my_json['request'])
 
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
-    myJSON['transaction_diff'] = None if self.transaction_diff is None else self.transaction_diff.serialize()
+    # myJSON['transaction_diff'] = None if self.transaction_diff is None else self.transaction_diff.serialize()
     return json.dumps(myJSON)
 
 
@@ -202,28 +203,28 @@ class Identifier(Message):
     return json.dumps(myJSON)
 
 
-class TransactionDiff(Message):
-  msg_type = 11
-
-  def __init__(self, pid, tid, transactions, diff_start):
-    super(TransactionDiff, self).__init__(pid, tid, TransactionDiff.msg_type)
-    self.transactions = transactions # To contain instances of Add or Delete
-    self.diff_start = diff_start
-
-  @classmethod
-  def from_json(cls, my_json):
-    transactions_string = my_json['transactions']
-    transactions = transactions_string.split(',')
-    transactions = [client_req_from_log(txn, my_json['pid']) for txn in transactions]
-    return cls(my_json['pid'], my_json['tid'], transactions, my_json['diff_start'])
-
-  def serialize(self):
-    myJSON = super(TransactionDiff, self).serialize()
-    result_arr = [msg.serialize()
-                  for msg in self.transactions
-                  if msg.tid > self.diff_start]
-    myJSON['transactions'] = ';'.join(result_arr)
-    myJSON['diff_start'] = self.diff_start
+# class TransactionDiff(Message):
+#   msg_type = 11
+#
+#   def __init__(self, pid, tid, transactions, diff_start):
+#     super(TransactionDiff, self).__init__(pid, tid, TransactionDiff.msg_type)
+#     self.transactions = transactions # To contain instances of Add or Delete
+#     self.diff_start = diff_start
+#
+#   @classmethod
+#   def from_json(cls, my_json):
+#     transactions_string = my_json['transactions']
+#     transactions = transactions_string.split(',')
+#     transactions = [client_req_from_log(txn, my_json['pid']) for txn in transactions]
+#     return cls(my_json['pid'], my_json['tid'], transactions, my_json['diff_start'])
+#
+#   def serialize(self):
+#     myJSON = super(TransactionDiff, self).serialize()
+#     result_arr = [msg.serialize()
+#                   for msg in self.transactions
+#                   if msg.tid > self.diff_start]
+#     myJSON['transactions'] = ';'.join(result_arr)
+#     myJSON['diff_start'] = self.diff_start
     return json.dumps(myJSON)
 
 
@@ -240,7 +241,7 @@ MSG_CONSTRUCTORS = {
   StateReq.msg_type: StateReq,
   StateRepid.msg_type: StateRepid,
   Identifier.msg_type: Identifier,
-  TransactionDiff.msg_type: TransactionDiff
+  # TransactionDiff.msg_type: TransactionDiff
 }
 
 
@@ -255,7 +256,7 @@ def deserialize_message(msg_string):
 
 # Add 
 class Add(Message): 
-  msg_type = 12
+  msg_type = 11
 
   def __init__(self, pid, tid, song_name, url):
     super(Add, self).__init__(pid, tid, Add.msg_type)
@@ -267,7 +268,7 @@ class Add(Message):
 
 # Delete 
 class Delete(Message): 
-  msg_type = 13
+  msg_type = 12
 
   def __init__(self, pid, tid, song_name):
     super(Delete, self).__init__(pid, tid, Delete.msg_type)
@@ -278,7 +279,7 @@ class Delete(Message):
 
 # Get 
 class Get(Message): 
-  msg_type = 14
+  msg_type = 13
 
   def __init__(self, pid, tid, song_name):
     super(Get, self).__init__(pid, tid, Get.msg_type)

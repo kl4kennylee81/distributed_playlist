@@ -107,7 +107,7 @@ class ClientConnectionHandler(Thread):
         msg = deserialize_message(str(data))
         self.server.storage.write_debug(data)
 
-        if self.server.getLeader():
+        if self.server.isLeader():
           self._coordinatorRecv(msg)
         else:
           self._participantRecv(msg)
@@ -120,7 +120,7 @@ class ClientConnectionHandler(Thread):
       self.connection_pid = None
       self.conn.close()
 
-      if self.server.getLeader():
+      if self.server.isLeader():
         self._coordinator_timeout_handler()
       else:
         self._participant_timeout_handler()
@@ -210,6 +210,7 @@ class ClientConnectionHandler(Thread):
   def _coordinatorRecv(self, msg):
     # do error handling if key error that means it got
     # a message it was not suppose to
+    print "this is message type::::::::::::: ", msg.type
     self.coordinator_handlers[msg.type](msg)
 
   def _participantRecv(self, msg):

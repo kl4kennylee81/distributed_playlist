@@ -7,7 +7,7 @@ from threading import RLock
 import sys
 
 # whitelist import from our files
-from messages import Add, Delete, TransactionDiff
+from messages import Add, Delete
 import storage
 
 from server_handler import ServerConnectionHandler
@@ -40,7 +40,7 @@ class Server:
   to create new sockets for incoming connections
   """
 
-  def __init__(self, pid, n, port, isLeader):
+  def __init__(self, pid, n, port):
     self.commandRequestExecutors = {
       Add.msg_type: self._add_commit_handler,
       Delete.msg_type: self._delete_commit_handler,
@@ -53,18 +53,9 @@ class Server:
     # Global State : global lock
     self.global_lock = RLock()
 
-
     # Global State : coordinator
     # all the instance variables in here are "global states" for the server
-    
-    # leader flag will be set by the initial identifier message sent
-    # than it will be set by the recepient participant
-    # this allows this field to be updated to the current leader
-
-    # leader: the process id of the current leader
-    self.leader = -1
-    if isLeader:
-      self.leader = self.pid
+    self.leader = -1  # leader not initializd yet
 
     # Global State : is the whole server still active or crashing
     # when False join all the threads and then return
@@ -142,17 +133,25 @@ class Server:
     # Transaction history
     self.transaction_history = self.storage.get_transcations()
 
+
+    no_socket = 0
     for i in range(n):
       try:
-        port_to_connect = START_PORT + i
-        cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, 
-                                                          port_to_connect, 
-                                                          self)
-        cur_handler.start()
+        if i != pid:
+          # only try to connect to not yourself
+          port_to_connect = START_PORT + i
+          cur_handler = ClientConnectionHandler.fromAddress(ADDRESS,
+                                                            port_to_connect,
+                                                            self)
+          cur_handler.start()
       except:
         # only connect to the sockets that are active
+        no_socket += 1
         continue
 
+    # if you are the first socket to come up, you are the leader
+    if no_socket == (n-1):
+      self.leader = self.pid
 
 
   def isValid(self):
@@ -188,7 +187,7 @@ class Server:
     with self.global_lock:
       return self.tid
 
-  def setLeader(self,isLeader):
+  def setLeader(self, isLeader):
     with self.global_lock:
       self.leader = isLeader
 

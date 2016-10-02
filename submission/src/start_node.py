@@ -11,8 +11,7 @@ def main():
   The arguments are in the order [name] [pid] [n] [port] 
   """
   pid, n, port = map(int, sys.argv[1:])
-  leader = (pid == 0) # TODO: fix this later
-  server.Server(pid, n, port, leader)
+  server.Server(pid, n, port)
   print "Finished starting up process {} at port {}".format(pid, port)
 
 if __name__ == "__main__":
