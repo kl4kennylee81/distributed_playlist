@@ -68,7 +68,7 @@ class MasterClientHandler(Thread):
     with server.global_lock:
       server.add_request(deserialized)
       server.setCoordinatorState(CoordinatorState.votereq)
-
+      
       # Compose VOTE-REQ, log, and send to all participants
       voteReq = VoteReq(server.pid, server.getTid(), deserialized.serialize())
       server.storage.write_dt_log(voteReq.serialize())
@@ -111,7 +111,6 @@ class ClientConnectionHandler(Thread):
       PreCommit.msg_type: self._preCommitHandler, 
       Decision.msg_type: self._decisionHandler,
       Identifier.msg_type: self._idHandler,
-
       #### These are for the special features ####
       # Recover.msg_type: Recover, 
       # Reelect.msg_type: Reelect,
@@ -261,7 +260,6 @@ class ClientConnectionHandler(Thread):
     # a message it was not suppose to
     self.participant_handlers[msg.type](msg)
 
-  # TODO: Check possible error?
   def _idHandler(self, msg):
     with self.server.global_lock:
       self.server.other_procs[msg.pid] = self
@@ -404,11 +402,11 @@ class Server:
   server: The server socket that is listening on connection requests
   to create new sockets for incoming connections
   """
-  
+
   def __init__(self, pid, n, port, leader):
     self.commandRequestExecutors = {
-        Add.msg_type: self._add_commit_handler,
-        Delete.msg_type: self._delete_commit_handler,
+      Add.msg_type: self._add_commit_handler,
+      Delete.msg_type: self._delete_commit_handler,
     }
 
     # all the instance variables in here are "global states" for the server
@@ -470,6 +468,9 @@ class Server:
     self.internal_server = ServerConnectionHandler(free_port_no, self)
     self.internal_server.start()
 
+    # Transaction history
+    self.transaction_history = self.storage.get_transcations()
+
     for i in range(n):
       try:
         port_to_connect = START_PORT + i
@@ -480,6 +481,8 @@ class Server:
       except:
         # only connect to the sockets that are active
         continue
+
+
 
   def setResponsesNeeded(self):
     with self.global_lock:
@@ -557,21 +560,23 @@ class Server:
     with self.global_lock:
       self.other_procs[pid] = new_thread
 
-  def add_request(self,request):
+  def add_request(self, request):
     with self.global_lock:
       self.request_queue.append(request)
 
-  def getUrl(self,songname):
+  def getUrl(self, songname):
     with self.global_lock:
       if songname in self.playlist:
         return self.playlist[songname]
       return None
 
-  def broadCastMessage(self,msg):
+  def broadCastMessage(self, msg):
     with self.global_lock:
       for proc in self.cur_request_set:
         serialized = msg.serialize()
         proc.send(serialized)
+
+  def broadcastVoteReq(self, voteReq):
 
   def commit_cur_request(self):
     with self.global_lock:
@@ -598,6 +603,16 @@ class Server:
       self.storage.delete_song(song_name)
       del self.playlist[song_name]
 
+  # Send transactions to the process identified by PID
+  # that start from diff_start
+  def send_transaction_diff(self, pid, diff_start):
+    with self.global_lock:
+      txn_diff = TransactionDiff(self.pid,
+                                 self.tid,
+                                 self.transaction_history,
+                                 diff_start)
+      # Send this to the desired process
+      self.other_procs[pid].send(txn_diff.serialize())
 
   def resetState(self):
     with self.global_lock:

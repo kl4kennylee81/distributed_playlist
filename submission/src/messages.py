@@ -116,17 +116,23 @@ class Reelect(Message):
 class VoteReq(Message):
   msg_type = 6 
 
-  def __init__(self, pid, tid, request):
+  def __init__(self, pid, tid, request, transaction_diff=None):
     super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
     self.request = request
+    self.transaction_diff = transaction_diff # Instance of TransactionDiff
+
+  def hasTransactionDiff(self):
+    return self.transaction_diff is not None
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'], my_json['request'])
+    txn_diff = TransactionDiff.from_json(my_json['transaction_diff'])
+    return cls(my_json['pid'], my_json['tid'], my_json['request'], txn_diff)
 
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
+    myJSON['transaction_diff'] = None if self.transaction_diff is None else self.transaction_diff.serialize()
     return json.dumps(myJSON)
 
 
@@ -181,7 +187,6 @@ class Ack(Message):
 
 # Identify myself
 class Identifier(Message):
-
   msg_type = 10
 
   def __init__(self, pid, tid):
@@ -193,6 +198,31 @@ class Identifier(Message):
 
   def serialize(self):
     myJSON = super(Identifier, self).serialize() 
+    return json.dumps(myJSON)
+
+
+class TransactionDiff(Message):
+  msg_type = 11
+
+  def __init__(self, pid, tid, transactions, diff_start):
+    super(TransactionDiff, self).__init__(pid, tid, TransactionDiff.msg_type)
+    self.transactions = transactions # To contain instances of Add or Delete
+    self.diff_start = diff_start
+
+  @classmethod
+  def from_json(cls, my_json):
+    transactions_string = my_json['transactions']
+    transactions = transactions_string.split(',')
+    transactions = [client_req_from_log(txn, my_json['pid']) for txn in transactions]
+    return cls(my_json['pid'], my_json['tid'], transactions, my_json['diff_start'])
+
+  def serialize(self):
+    myJSON = super(TransactionDiff, self).serialize()
+    result_arr = [msg.serialize()
+                  for msg in self.transactions
+                  if msg.tid > self.diff_start]
+    myJSON['transactions'] = ';'.join(result_arr)
+    myJSON['diff_start'] = self.diff_start
     return json.dumps(myJSON)
 
 
@@ -209,6 +239,7 @@ MSG_CONSTRUCTORS = {
   StateReq.msg_type: StateReq,
   StateRepid.msg_type: StateRepid,
   Identifier.msg_type: Identifier,
+  TransactionDiff.msg_type: TransactionDiff
 }
 
 
@@ -229,7 +260,7 @@ class Add(Message):
     super(Add, self).__init__(pid, tid, Add.msg_type)
     self.song_name = song_name
     self.url = url
-    
+
   def serialize(self):
     return str(self.tid) + ",add " + self.song_name + " " + self.url
 
@@ -269,6 +300,14 @@ def deserialize_client_req(msg_string, pid, tid):
     return Delete(pid, tid, msg_list[1])
   else: 
     return Get(pid, tid, msg_list[1])
+
+# Function to handle pulling historical client requests
+# from the Transaction Log of a Process
+def client_req_from_log(log_string, pid):
+  comma = log_string.find(',')
+  tid = int(log_string[:comma])
+  msg_string = log_string[comma+1:]
+  return deserialize_client_req(msg_string, pid, tid)
 
 
 
