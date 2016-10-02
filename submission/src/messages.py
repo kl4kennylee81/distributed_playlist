@@ -111,55 +111,25 @@ class Reelect(Message):
 class VoteReq(Message):
   msg_type = 6 
 
-  def __init__(self, pid, tid, request, transaction_diff=None):
+  def __init__(self, pid, tid, request, transactions_diff=None):
     super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
     self.request = request
-    # self.transaction_diff = transaction_diff # Instance of TransactionDiff
-
-  def hasTransactionDiff(self):
-    return self.transaction_diff is not None
-
-  def setTransactionDiff(self, transaction_diff):
-    self.transaction_diff = transaction_diff
+    # To contain instances of Add or Delete
+    self.transactions_diff = transactions_diff
 
   @classmethod
   def from_json(cls, my_json):
-    result = cls(my_json['pid'], my_json['tid'], my_json['request'])
-    # txn_diff = None if my_json['transaction_diff'] is None \
-    #   else VoteReq.TransactionDiff.from_json(my_json['transaction_diff'])
-    # result.setTransactionDiff(txn_diff)
+    transactions_diff = None if my_json['transactions_diff'] is None else \
+      [client_req_from_log(t) for t in my_json['transactions_diff'].split(';')]
+    result = cls(my_json['pid'], my_json['tid'], my_json['request'], transactions_diff)
     return result
 
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
-    # myJSON['transaction_diff'] = None if self.transaction_diff is None else self.transaction_diff.serialize()
+    myJSON['transaction_diff'] = None if self.transactions_diff is None else \
+      ';'.join([t.serialize() for t in self.transactions_diff])
     return json.dumps(myJSON)
-
-  # Inner, transaction-diff message component
-  class TransactionDiff:
-
-    def __init__(self, diff_start, transactions):
-      self.diff_start = diff_start
-      # To contain instances of Add or Delete (all with TID > diff_start)
-      self.transactions = [t for t in transactions if t.tid > diff_start]
-
-    @classmethod
-    def from_json(cls, my_json):
-      # Grab the diff_start we care about
-      diff_start = int(my_json['diff_start'])
-      # Grab a list of Adds and Deletes
-      transactions_string = my_json['transactions']
-      transactions = transactions_string.split(';')
-      transactions = [client_req_from_log(txn_log) for txn_log in transactions]
-      return cls(diff_start, transactions)
-
-    def serialize(self):
-      myJSON = dict()
-      result_arr = [msg.serialize() for msg in self.transactions]
-      myJSON['transactions'] = ';'.join(result_arr)
-      myJSON['diff_start'] = self.diff_start
-      return json.dumps(myJSON)
 
 
 # StateReq 

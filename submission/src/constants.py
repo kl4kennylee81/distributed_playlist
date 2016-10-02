@@ -18,7 +18,8 @@ Choice = Enum('Choice', 'yes no')
 Decide = Enum('Decide', 'commit abort')
 
 # Forced Action Commands from master client
-ForcedType = Enum('ForcedType', 'crash voteNo crashAfterVote crashAfterAck crashVoteReq crashPartialPrecommit crashPartialCommit')
+ForcedType = Enum('ForcedType',
+    'crash voteNo crashAfterVote crashAfterAck crashVoteReq crashPartialPrecommit crashPartialCommit')
 
 # Commands from master client
 RequestType = Enum('RequestType', 'add get delete')

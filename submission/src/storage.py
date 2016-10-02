@@ -10,10 +10,10 @@ class Storage:
   # Constructor 
   def __init__(self, pid):
     self.pid = pid
-    self.dt_log = 'src/db/' + str(self.pid) + '_dt'
-    self.disk = 'src/db/' + str(self.pid) + '_disk'
-    self.debug = 'src/db/' + str(self.pid) + '_debug'
-    self.transactions = 'src/db/' + str(self.pid) + '_transactions'
+    self.dt_log = 'src/db/' + str(self.pid) + '_dt.txt'
+    self.disk = 'src/db/' + str(self.pid) + '_disk.txt'
+    self.debug = 'src/db/' + str(self.pid) + '_debug.txt'
+    self.transactions = 'src/db/' + str(self.pid) + '_transactions.txt'
     dt = open(self.dt_log, 'a'); dt.close()
     db = open(self.disk, 'a'); db.close()
     log = open(self.debug, 'a'); log.close()
@@ -87,4 +87,6 @@ class Storage:
   def write_debug(self, debug_log):
     Storage._append_to_file(self.debug, debug_log)
 
-
+  # Write a transaction to the log
+  def write_transaction(self, txn):
+    Storage._append_to_file(self.transactions, txn)

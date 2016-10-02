@@ -133,7 +133,7 @@ class Server:
     # Transaction history
     self.transaction_history = self.storage.get_transcations()
 
-
+    # Socket Connection Coordination
     no_socket = 0
     for i in range(n):
       try:
@@ -245,7 +245,16 @@ class Server:
   def newParticipant(self, pid, new_thread):
     with self.global_lock:
       if self.isValid():
-        self.server.other_procs[pid] = new_thread
+        self.other_procs[pid] = new_thread
+
+  def get_transaction_history(self):
+    return self.transaction_history
+
+  # Atomically log a transaction to both stable storage and
+  # in-memory datastore
+  def log_transaction(self, request):
+    self.storage.write_transaction(request)
+    self.transaction_history.append(request)
 
   def add_request(self, request):
     with self.global_lock:
@@ -345,14 +354,11 @@ class Server:
             serialized = msg.serialize()
             proc.send(serialized)
 
-  def broadcastVoteReq(self, voteReq):
-    pass
-
   def commit_cur_request(self):
     with self.global_lock:
       if self.isValid():
         current_request = self.request_queue.popleft()
-        if current_request != None:
+        if current_request is not None:
           self.commandRequestExecutors[current_request.msg_type](current_request)
           self.state = State.committed
 
@@ -366,26 +372,24 @@ class Server:
     with self.global_lock:
       if self.isValid():
         song_name, url = request.song_name, request.url
+        # Stable storage
         self.storage.add_song(song_name, url)
+        self.log_transaction(request)
+        # Local change
         self.playlist[song_name] = url
 
   def _delete_commit_handler(self,request):
     with self.global_lock:
       if self.isValid():
         song_name = request.song_name
+        # Stable storage
         self.storage.delete_song(song_name)
+        self.log_transaction(request)
+        # Local change
         del self.playlist[song_name]
 
-  # # Send transactions to the process identified by PID
-  # # that start from diff_start
-  # def send_transaction_diff(self, pid, diff_start):
-  #   with self.global_lock:
-  #     txn_diff = TransactionDiff(self.pid,
-  #                                self.tid,
-  #                                self.transaction_history,
-  #                                diff_start)
-  #     # Send this to the desired process
-  #     self.other_procs[pid].send(txn_diff.serialize())
+  def serialize_transaction_history(self):
+    return [t.serialize() for t in self.transaction_history]
 
   def resetState(self):
     with self.global_lock:

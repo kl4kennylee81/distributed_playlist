@@ -45,57 +45,65 @@ class MasterClientHandler(Thread):
     with self.server.global_lock:
       return self.server.isValid()
 
-  def _get_handler(self, deserialized, server):
+  def _vote_req_sender(self, pid, request):
+    connecting_thread = self.server.other_procs[pid]
+    if connecting_thread is not None:
+      diff_start = connecting_thread.connection_tid
+      transactions_diff = [t for t in self.server.get_transaction_history() if t.tid > diff_start]
+      vote_req = VoteReq(self.server.pid, self.server.getTid(), request, transactions_diff)
+      connecting_thread.send(vote_req.serialize())
+
+  def _get_handler(self, deserialized):
     """
     Processes GET request of data and responds to the master client.
     :param deserialized: deserialized Message
     :param server: an instance of any process
     """
-    with server.global_lock:
+    with self.server.global_lock:
       # deliver back to the master client
-      url = server.getUrl(deserialized.song_name)
+      url = self.server.getUrl(deserialized.song_name)
       url_resp = ResponseGet(url)
       self.send(url_resp.serialize())
 
-  def _add_handler(self, deserialized, server):
+  def _transaction_handler(self, deserialized):
+    with self.server.global_lock:
+      self.server.add_request(deserialized)
+      self.server.setCoordinatorState(CoordinatorState.votereq)
+
+      # Grab the serialized request "add songName URL"
+      request = deserialized.serialize()
+
+      # Compose VOTE-REQ, log, and send to all participants
+      voteReq = VoteReq(self.server.pid, self.server.getTid(), request)
+      self.server.storage.write_dt_log(voteReq.serialize())
+      # Check crash condition
+      crashAfterVoteReq = self.server.pop_crashVoteReq_request()
+      # If we should crash, send to a subset and then crash
+      if crashAfterVoteReq is not None:
+        for p in crashAfterVoteReq.sendTopid:
+          self._vote_req_sender(p, request)
+        self.server.exit()
+      # If we shouldn't crash, send to cur_request_set of the server
+      else:
+        for p in self.server.cur_request_set:
+          self._vote_req_sender(p, request)
+
+
+  def _add_handler(self, deserialized):
     """
     Begins 3-Phase-Commit for the addition of a song
     :param deserialized: deserialized Message
     :param server: an instance of the COORDINATOR
     """
-    with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
+    self._transaction_handler(deserialized)
 
-      # Compose VOTE-REQ, log, and send to all participants
-      voteReq = VoteReq(server.pid, server.getTid(), deserialized.serialize())
-      server.storage.write_dt_log(voteReq.serialize())
-      server.broadCastMessage(voteReq)
-
-  def _delete_handler(self, deserialized, server):
+  def _delete_handler(self, deserialized):
     """
     Begins 3-Phase-Commit for the deletion of a song
     :param deserialized: deserialized Message
     :param server: an instance of the COORDINATOR
     """
-    with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-      voteReq = VoteReq(server.pid, server.getTid(), deserialized.serialize())
-      server.broadCastMessage(voteReq)
-
-  def _transaction_handler(self, deserialized, server):
-    with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-      voteReq = VoteReq(server.pid, deserialized.serialize())
-
-      crashAfterVoteReq = server.pop_crashVoteReq_request()
-      if crashAfterVoteReq != None:
-        server.broadCastMessage(voteReq, crashAfterVoteReq.sendTopid)
-        server.exit()
-      else:
-        server.broadCastMessage(voteReq)
+    self._transaction_handler(deserialized)
 
   def send(self, s):
     """

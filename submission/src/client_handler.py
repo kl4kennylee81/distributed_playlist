@@ -66,6 +66,10 @@ class ClientConnectionHandler(Thread):
     # Determined after first messages are sent.
     self.connection_pid = None
 
+    # tid of the server on the other side of the socket.
+    # Determined after first messages are sent.
+    self.connection_tid = 0
+
   @classmethod
   def fromConnection(cls, conn, server):
     result = cls()
@@ -163,7 +167,7 @@ class ClientConnectionHandler(Thread):
     If a process times out waiting for voteReq, unilaterally abort.
     """
     with self.server.global_lock:
-      abort = Decision(self.server.pid, self.server.getTid(), Decision.abort)
+      abort = Decision(self.server.pid, self.server.getTid(), Decide.abort)
       abortSerialized = abort.serialize()
       self.server.storage.write_dt_log(abortSerialized)
 
@@ -224,6 +228,7 @@ class ClientConnectionHandler(Thread):
     with self.server.global_lock:
       self.server.other_procs[msg.pid] = self
       self.connection_pid = msg.pid
+      self.connection_tid = msg.tid
 
   # Participant recieved messages votereq, precommit, decision #
   def _voteReqHandler(self, msg):

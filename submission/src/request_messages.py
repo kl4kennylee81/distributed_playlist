@@ -65,3 +65,4 @@ def client_req_from_log(log_string):
   tid = int(log_string[:comma])
   msg_string = log_string[comma + 1:]
   return deserialize_client_command_request(msg_string, tid)
+
