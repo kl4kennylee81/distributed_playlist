@@ -93,17 +93,17 @@ class Recover(Message):
 class Reelect(Message): 
   msg_type = 5 
 
-  def __init__(self, pid, tid, new_coord_pid):
+  def __init__(self, pid, tid, new_atomic_leader):
     super(Reelect, self).__init__(pid, tid, Reelect.msg_type)
-    self.new_coord_pid = new_coord_pid
+    self.new_atomic_leader = new_atomic_leader
 
   @classmethod
   def from_json(cls, my_json): 
-    return cls(my_json['pid'], my_json['tid'], my_json['new_coord_pid'])
+    return cls(my_json['pid'], my_json['tid'], my_json['new_atomic_leader'])
 
   def serialize(self): 
     myJSON = super(Reelect, self).serialize() 
-    myJSON['new_coord_pid'] = self.new_coord_pid
+    myJSON['new_atomic_leader'] = self.new_atomic_leader
     return json.dumps(myJSON)
 
 
@@ -179,11 +179,11 @@ class StateReq(Message):
 
 
 # StateRepid
-class StateRepid(Message): 
+class StateReqResponse(Message):
   msg_type = 8 
 
   def __init__(self, pid, tid, state):
-    super(StateRepid, self).__init__(pid, tid, StateRepid.msg_type)
+    super(StateReqResponse, self).__init__(pid, tid, StateReqResponse.msg_type)
     self.state = State[state.lower()]
 
   @classmethod
@@ -191,7 +191,7 @@ class StateRepid(Message):
     return cls(my_json['pid'], my_json['tid'], my_json['state'])
 
   def serialize(self): 
-    myJSON = super(StateRepid, self).serialize() 
+    myJSON = super(StateReqResponse, self).serialize()
     myJSON['state'] = self.state.name
     return json.dumps(myJSON)
 
@@ -214,9 +214,9 @@ class Ack(Message):
 class Identifier(Message):
   msg_type = 10
 
-  def __init__(self, pid, tid, is_leader):
+  def __init__(self, pid, tid, atomic_leader):
     super(Identifier, self).__init__(pid, tid, Identifier.msg_type)
-    self.is_leader = is_leader
+    self.atomic_leader = atomic_leader
 
   @classmethod
   def from_json(cls, my_json):
@@ -225,7 +225,7 @@ class Identifier(Message):
 
   def serialize(self):
     myJSON = super(Identifier, self).serialize()
-    myJSON['is_leader'] = self.is_leader
+    myJSON['atomic_leader'] = self.atomic_leader
     return json.dumps(myJSON)
 
 

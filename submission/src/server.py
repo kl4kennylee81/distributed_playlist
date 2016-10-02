@@ -186,13 +186,23 @@ class Server:
     with self.global_lock:
       return self.tid
 
-  def setLeader(self, isLeader):
+  def setAtomicLeader(self, new_leader):
+    """ Test and set for making sure the new leader is actually bigger than
+        the current leader. This is used to ignore new leaders that are lower """
     with self.global_lock:
-      self.leader = isLeader
+      if new_leader > self.getAtomicLeader():
+        self.leader = new_leader
+        return True
+      return False
 
-  def getLeader(self):
+  def getAtomicLeader(self):
     with self.global_lock:
       return self.leader
+
+  def getLeader(self):
+    """ Returns the ACTUAL pids (from 0 ... n) of the current leader"""
+    with self.global_lock:
+      return self.getAtomicLeader() % len(self.other_procs)
 
   def isLeader(self):
     with self.global_lock:
@@ -236,6 +246,27 @@ class Server:
           if proc is not None:
             newAliveSet.add(proc)
         self.cur_request_set = newAliveSet
+
+  def is_in_cur_transaction(self,client_pid):
+    for client_procs in self.cur_request_set:
+      if client_pid == client_procs.getClientPid():
+        return True
+    return False
+
+  def remove_from_cur_transaction(self, client_pid):
+    """ removes from the alive set and sets to None. Fails softly for key that doesn't exist """
+    to_remove = None
+
+    for client_proc in self.cur_request_set:
+      if client_pid == client_proc.getClientPid():
+        to_remove = client_proc
+        break
+
+    self.other_procs[client_pid] = None
+
+    if to_remove in self.cur_request_set:
+      self.cur_request_set.remove(to_remove)
+
 
   def setState(self,newState):
     with self.global_lock:
@@ -334,6 +365,9 @@ class Server:
         return None
 
   def broadCastMessage(self, msg, sendTopid=None):
+    """
+    sentTopid is the list of pids to sent to. Otherwise broadcasts to all.
+    """
     with self.global_lock:
       if self.isValid():
         for proc in self.cur_request_set:
@@ -345,16 +379,33 @@ class Server:
             serialized = msg.serialize()
             proc.send(serialized)
 
-  def broadcastVoteReq(self, voteReq):
-    pass
+  def broadCastStateReq(self):
+    with self.global_lock:
+      stateReqMsg = StateReq(self.pid)
+      self.broadCastMessage(stateReqMsg)
+      self.setResponsesNeeded()
+      # also need to set the number of stateResponses needed
+      # in the alive set of threads we'll keep track of their states
+
+
+  def broadCastAbort(self):
+    with self.global_lock:
+      abortMsg = Decision(self.pid, self.getTid(), Decide.abort)
+      self.setCoordinatorState(CoordinatorState.standby)
+
+      abortSerialized = abortMsg.serialize()
+      self.storage.write_dt_log(abortSerialized)
+
+      self.broadCastMessage(abortMsg)
+
 
   def commit_cur_request(self):
     with self.global_lock:
       if self.isValid():
-        current_request = self.request_queue.popleft()
-        if current_request != None:
-          self.commandRequestExecutors[current_request.msg_type](current_request)
-          self.state = State.committed
+          current_request = self.request_queue.popleft()
+          if current_request != None:
+            self.commandRequestExecutors[current_request.msg_type](current_request)
+            self.state = State.committed
 
   def coordinator_commit_cur_request(self):
     with self.global_lock:

@@ -9,7 +9,7 @@ TIMEOUT_SECS = 5.0
 State = Enum('State', 'aborted uncertain committable committed')
 
 # Possible coordinator states 
-CoordinatorState = Enum('CoordinatorState', 'standby votereq precommit completed')
+CoordinatorState = Enum('CoordinatorState', 'standby votereq precommit completed termination')
 
 # Voting choices 
 Choice = Enum('Choice', 'yes no')
