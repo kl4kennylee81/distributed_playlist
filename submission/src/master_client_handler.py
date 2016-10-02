@@ -76,6 +76,7 @@ class MasterClientHandler(Thread):
       # Compose VOTE-REQ, log, and send to all participants
       voteReq = VoteReq(self.server.pid, self.server.getTid(), request)
       self.server.storage.write_dt_log(voteReq.serialize())
+
       # Check crash condition
       crashAfterVoteReq = self.server.pop_crashVoteReq_request()
       # If we should crash, send to a subset and then crash

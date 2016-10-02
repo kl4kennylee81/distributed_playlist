@@ -9,15 +9,27 @@ class Storage:
 
   # Constructor 
   def __init__(self, pid):
+    # PID of the process to which this storage belongs to
     self.pid = pid
+    # DT Log (for state checking on recovering)
     self.dt_log = 'src/db/' + str(self.pid) + '_dt.txt'
+    # Disk (for songs)
     self.disk = 'src/db/' + str(self.pid) + '_disk.txt'
+    # Debug (for debug loggin)
     self.debug = 'src/db/' + str(self.pid) + '_debug.txt'
+    # For successful transactions (adds / deletes + corresponding TID)
     self.transactions = 'src/db/' + str(self.pid) + '_transactions.txt'
+    # Last logged alive set of this process
+    self.alive_set = 'src/db/' + str(self.pid) + '_alive_set.txt'
+
+    # Building all these files so we can interact with them for the
+    # purposes of storage
     dt = open(self.dt_log, 'a'); dt.close()
     db = open(self.disk, 'a'); db.close()
     log = open(self.debug, 'a'); log.close()
     txn = open(self.transactions, 'a'); txn.close()
+    alive = open(self.alive_set, 'a'); alive.close()
+
 
   # Get data from a file + return the appropriate 
   # dictionary holding mappings (<songName: URL>) 
@@ -90,3 +102,10 @@ class Storage:
   # Write a transaction to the log
   def write_transaction(self, txn):
     Storage._append_to_file(self.transactions, txn)
+
+  # Update the alive set (stored in file)
+  def update_alive_set(self, alive_set):
+    serialized_alive_set = ';'.join([str(s) for s in alive_set])
+    with open(self.alive_set, 'w') as f:
+      f.write(serialized_alive_set)
+

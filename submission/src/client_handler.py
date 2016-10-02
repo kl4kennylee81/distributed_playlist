@@ -248,6 +248,7 @@ class ClientConnectionHandler(Thread):
         yesVoteSerialized = yesVote.serialize()
         self.server.storage.write_dt_log(yesVoteSerialized)
         self.send(yesVoteSerialized)  # if participant crash
+
         afterVoteCrash = self.server.pop_crashAfterVote_request()
 
         # TODO change this if we keep track of the leader to
@@ -304,7 +305,6 @@ class ClientConnectionHandler(Thread):
           decision = Decision(self.server.pid, self.server.getTid(), d)
 
           crashPartialCommit = self.server.pop_crashPartialCommit()
-
           if crashPartialCommit is not None:
             self.server.broadCastMessage(decision, crashPartialCommit.sendTopid)
             self.server.exit()
