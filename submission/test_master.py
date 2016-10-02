@@ -64,6 +64,8 @@ class ClientHandler(Thread):
 
   def send(self, s):
     if self.valid:
+      print("Master is sending\n")
+      print(s)
       self.sock.send(str(s) + '\n')
 
   def close(self):

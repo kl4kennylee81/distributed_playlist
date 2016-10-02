@@ -2,7 +2,6 @@ import json
 from abc import ABCMeta, abstractmethod
 from constants import *
 
-
 # Message class 
 class Message: 
   __metaclass__ = ABCMeta
@@ -18,7 +17,6 @@ class Message:
     return { "pid": self.pid,
              "tid": self.tid,
              "type": self.type }
-
 
 # Internal message 
 
@@ -189,15 +187,18 @@ class Ack(Message):
 class Identifier(Message):
   msg_type = 10
 
-  def __init__(self, pid, tid):
+  def __init__(self, pid, tid, is_leader):
     super(Identifier, self).__init__(pid, tid, Identifier.msg_type)
+    self.is_leader = is_leader
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'])
+    return cls(my_json['pid'], my_json['tid'], my_json['is_leader'])
+
 
   def serialize(self):
-    myJSON = super(Identifier, self).serialize() 
+    myJSON = super(Identifier, self).serialize()
+    myJSON['is_leader'] = self.is_leader
     return json.dumps(myJSON)
 
 
@@ -308,6 +309,7 @@ def client_req_from_log(log_string, pid):
   tid = int(log_string[:comma])
   msg_string = log_string[comma+1:]
   return deserialize_client_req(msg_string, pid, tid)
+
 
 
 
