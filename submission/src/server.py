@@ -7,7 +7,7 @@ from threading import RLock
 import sys
 
 # whitelist import from our files
-from messages import Add, Delete, TransactionDiff
+from request_messages import Add, Delete
 import storage
 
 from server_handler import ServerConnectionHandler
@@ -152,8 +152,6 @@ class Server:
       except:
         # only connect to the sockets that are active
         continue
-
-
 
   def isValid(self):
     with self.global_lock:
