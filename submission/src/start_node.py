@@ -12,7 +12,7 @@ def main():
   """
   pid, n, port = map(int, sys.argv[1:])
   leader = (pid == 0) # TODO: fix this later
-  node = server.Server(pid, n, port, leader)
+  server.Server(pid, n, port, leader)
   print "Finished starting up process {} at port {}".format(pid, port)
 
 if __name__ == "__main__":

@@ -254,12 +254,12 @@ class ClientConnectionHandler(Thread):
   def coordinatorRecv(self, msg):
     # do error handling if key error that means it got 
     # a message it was not suppose to
-    self.coordinator_handlers[msg.type](msg,self.server)
+    self.coordinator_handlers[msg.type](msg)
 
   def participantRecv(self, msg):
     # do error handling if key error that means it got 
     # a message it was not suppose to
-    self.participant_handlers[msg.type](msg,self.server)
+    self.participant_handlers[msg.type](msg)
 
   # TODO: Check possible error?
   def _idHandler(self, msg):
@@ -470,7 +470,7 @@ class Server:
     self.internal_server = ServerConnectionHandler(free_port_no, self)
     self.internal_server.start()
 
-    for i in range(self.pid):
+    for i in range(n):
       try:
         port_to_connect = START_PORT + i
         cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, 
@@ -478,8 +478,8 @@ class Server:
                                                           self)
         cur_handler.start()
       except:
-        print sys.exc_info()
-        print("Error connecting to port: {}".format(port_to_connect))
+        # only connect to the sockets that are active
+        continue
 
   def setResponsesNeeded(self):
     with self.global_lock:

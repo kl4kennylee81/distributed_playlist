@@ -16,7 +16,7 @@ class Message:
   @abstractmethod
   def serialize(self): 
     return { "pid": self.pid,
-             "rid": self.tid,
+             "tid": self.tid,
              "type": self.type }
 
 
