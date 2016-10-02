@@ -255,7 +255,7 @@ def deserialize_message(msg_string):
 
 # Add 
 class Add(Message): 
-  msg_type = 11
+  msg_type = 12
 
   def __init__(self, pid, tid, song_name, url):
     super(Add, self).__init__(pid, tid, Add.msg_type)
@@ -267,7 +267,7 @@ class Add(Message):
 
 # Delete 
 class Delete(Message): 
-  msg_type = 12
+  msg_type = 13
 
   def __init__(self, pid, tid, song_name):
     super(Delete, self).__init__(pid, tid, Delete.msg_type)
@@ -278,7 +278,7 @@ class Delete(Message):
 
 # Get 
 class Get(Message): 
-  msg_type = 13
+  msg_type = 14
 
   def __init__(self, pid, tid, song_name):
     super(Get, self).__init__(pid, tid, Get.msg_type)

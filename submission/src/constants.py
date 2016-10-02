@@ -1,5 +1,10 @@
 from enum import Enum
 
+BUFFER_SIZE = 1024
+START_PORT = 20000
+ADDRESS = "localhost"
+TIMEOUT_SECS = 5.0
+
 # Possible server states 
 State = Enum('State', 'aborted uncertain committable committed')
 

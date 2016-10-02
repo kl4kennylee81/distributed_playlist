@@ -1,7 +1,7 @@
 from constants import *
 from abc import ABCMeta, abstractmethod
 import json
-from messages import deserialize_client_command_request
+from request_messages import deserialize_client_command_request
 
 class ForcedRequest(object):
 
