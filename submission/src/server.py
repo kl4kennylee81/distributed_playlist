@@ -38,6 +38,7 @@ class MasterClientHandler(Thread):
       Delete.msg_type: self._delete_handler,
     }
 
+
   def run(self):
     """
     Captures messages on the socket every iteration.
@@ -47,6 +48,7 @@ class MasterClientHandler(Thread):
       data = self.master_conn.recv(BUFFER_SIZE)
       deserialized = deserialize_client_req(data, self.server.pid, self.server.getTid())
       self.handlers[deserialized.type](deserialized, self.server)
+
 
   def _get_handler(self, deserialized, server):
     """
@@ -59,6 +61,7 @@ class MasterClientHandler(Thread):
       url = server.getUrl(deserialized.song_name)
       url_resp = ResponseGet(url)
       self.send(url_resp.serialize())
+
 
   def _add_handler(self, deserialized, server):
     """
@@ -235,9 +238,16 @@ class ClientConnectionHandler(Thread):
     except KeyError, e:
       self.server.storage.write_debug(str(e) + "\n[^] Invalid participant state")
 
+
   """ Participant timeout handlers """
   def _voteReq_timeout(self):
-    pass
+    """
+    If a process times out waiting for voteReq, unilaterally abort.
+    """
+    with self.server.global_lock:
+      abort = Decision(self.server.pid, self.server.getTid(), Decision.abort)
+      abortSerialized = abort.serialize()
+      self.server.storage.write_dt_log(abortSerialized)
 
 
   def _preCommit_timeout(self):
@@ -581,7 +591,8 @@ class Server:
     with self.global_lock:
       newAliveSet = set()
       for pid,proc in self.other_procs.iteritems():
-        newAliveSet.add(proc)
+        if proc is not None:
+          newAliveSet.add(proc)
       self.cur_request_set = newAliveSet
 
   def setState(self,newState):
