@@ -19,6 +19,7 @@ import storage
 BUFFER_SIZE = 1024
 START_PORT = 20000
 ADDRESS = "localhost"
+TIMEOUT_SECS = 5.0
 
 
 class MasterClientHandler(Thread):
@@ -108,7 +109,7 @@ class ClientConnectionHandler(Thread):
     self.participant_handlers = {
       # These are coordinator sent messages ###
       VoteReq.msg_type: self._voteReqHandler,
-      PreCommit.msg_type: self._preCommitHandler, 
+      PreCommit.msg_type: self._preCommitHandler,
       Decision.msg_type: self._decisionHandler,
       Identifier.msg_type: self._idHandler,
 
@@ -132,95 +133,128 @@ class ClientConnectionHandler(Thread):
     }
 
     # Handlers for timeouts
-    # TODO: Hong and Joe
-    self.parti_failureHandler = {}
-    self.coord_failureHandler = {}
+    self.parti_failureHandler = {
+      State.aborted: self._voteReq_timeout,
+      State.uncertain: self._preCommit_timeout,
+      State.committable: self._commit_timeout,
+    }
+
+    self.coord_failureHandler = {
+      CoordinatorState.votereq: self._vote_timeout,
+      CoordinatorState.precommit: self._ack_timeout,
+    }
 
     # Silencing warnings
     self.server = None
     self.conn = None
     self.valid = None
 
+    # pid of the server on the other side of the socket.
+    # Determined after first messages are sent.
+    self.connection_pid = None
+
+
   @classmethod
   def fromConnection(cls, conn, server):
     result = cls()
     result.conn = conn
+    result.conn.settimeout(TIMEOUT_SECS)
     result.valid = True
     result.server = server
     return result
+
 
   @classmethod
   def fromAddress(cls, address, port, server):
     result = cls()
     result.conn = socket.socket(AF_INET, SOCK_STREAM) 
     result.conn.connect((address, port))
+    result.conn.settimeout(TIMEOUT_SECS)
     result.valid = True
     result.server = server
     return result
 
+
   def run(self):
-    # TODO: Add timeout to sockets
     # TODO: Discuss need to send PID @ beginning of this connection's life
     id_msg = Identifier(self.server.pid, self.server.getTid())
     self.send(id_msg.serialize())
-    # I commented out the try except for debugging
-    # try:
-    while self.valid:
 
-      # Receive data on socket, deserialize it, and log it
-      data = self.conn.recv(BUFFER_SIZE)
-      msg = deserialize_message(str(data))
-      self.server.storage.write_debug(data)
+    try:
+      while self.valid:
+        data = self.conn.recv(BUFFER_SIZE)
+        msg = deserialize_message(str(data))
+        self.server.storage.write_debug(data)
 
-      # Handle based on whether the process is a coordinator or a
-      # participant
+        if self.server.getLeader():
+          self._coordinatorRecv(msg)
+        else:
+          self._participantRecv(msg)
+
+    except socket.timeout, e:
+      self.server.storage.write_debug(str(e) + "\n[^] Timeout error")
+
+      self.valid = False # TODO: why do we need self.valid?
+      self.server.other_procs[self.connection_pid] = None
+      self.connection_pid = None
+      self.conn.close()
+
       if self.server.getLeader():
-        self.coordinatorRecv(msg)
+        self._coordinator_timeout_handler()
       else:
-        self.participantRecv(msg)
+        self._participant_timeout_handler()
 
-      # #
-      # # ADD THE exception logic for timeouts here
-      # # This will be where it will run termination protocol
-      # # and the reelection
-      # # if it timeout from the coordinator
-      # # need a local copy of who he thinks is
-      # # the coordinator
-      # except:
-      #   # create a state handler here to handle failures
-      #   # for each state, one for coordinator handler failure
-      #   # and one for partcipants handler for his state
-      #   # for example coordinator in wait_acks on a failure
-      #   # would delete the alive guy and increment the count
-      #   # of acks responded
 
-      #   if (self.server.getLeader()):
-      #     self.coordinatorStateFailureHandler(self.server)
-      #   else:
-      #     self.participantStateFailureHandler(self.server)
+      # if it timeout from the coordinator
+      # need a local copy of who he thinks is
+      # the coordinator
 
-      #   self.valid = False
-      #   return
-      #   # remove self from alive list
-      #   # possibly when other procs is pid -> channel
-      #   # you make the pid key -> None, until some
-      #   # recovered new channel thread takes its place
+      # create a state handler here to handle failures
+      # for each state, one for coordinator handler failure
+      # and one for partcipants handler for his state
+      # for example coordinator in wait_acks on a failure
+      # would delete the alive guy and increment the count
+      # of acks responded
 
-      #   # handle network failure, timeouts etc
-      #   # close the channel
-      #   # return the thread
+      # remove self from alive list
+      # possibly when other procs is pid -> channel
+      # you make the pid key -> None, until some
+      # recovered new channel thread takes its place
 
-  def coordinatorStateFailureHandler(self, server):
+
+  def _coordinator_timeout_handler(self):
     try:
-      self.coord_failureHandler[server.getCoordinatorState()](server)
+      self.coord_failureHandler[self.server.getCoordinatorState()]()
     except KeyError, e:
-      self.server.storage.write_debug(str(e) + "\n[^] Invalid coordinator state")
+      self.server.storage  .write_debug(str(e) + "\n[^] Invalid coordinator state")
 
-  def participantStateFailureHandler(self, server):
+
+  def _participant_timeout_handler(self):
     try:
-      self.parti_failureHandler[server.getState()](server)
+      self.parti_failureHandler[self.server.getState()]()
     except KeyError, e:
       self.server.storage.write_debug(str(e) + "\n[^] Invalid participant state")
+
+  """ Participant timeout handlers """
+  def _voteReq_timeout(self):
+    pass
+
+
+  def _preCommit_timeout(self):
+    pass
+
+
+  def _commit_timeout(self):
+    pass
+
+
+  """ Coordinator timeout handlers """
+  def _vote_timeout(self):
+    pass
+
+
+  def _ack_timeout(self):
+    pass
 
 
   def _wait_votes_failure(self):
@@ -251,12 +285,12 @@ class ClientConnectionHandler(Thread):
 #   longer the coordinator
 # '''
   # TODO: Think about this really hard
-  def coordinatorRecv(self, msg):
+  def _coordinatorRecv(self, msg):
     # do error handling if key error that means it got 
     # a message it was not suppose to
     self.coordinator_handlers[msg.type](msg)
 
-  def participantRecv(self, msg):
+  def _participantRecv(self, msg):
     # do error handling if key error that means it got 
     # a message it was not suppose to
     self.participant_handlers[msg.type](msg)
@@ -265,6 +299,7 @@ class ClientConnectionHandler(Thread):
   def _idHandler(self, msg):
     with self.server.global_lock:
       self.server.other_procs[msg.pid] = self
+      self.connection_pid = msg.pid
 
   # Participant recieved messages votereq, precommit, decision #
   def _voteReqHandler(self, msg):
