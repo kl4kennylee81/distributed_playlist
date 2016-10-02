@@ -60,6 +60,8 @@ class CrashPartialCommit(Request):
 
 # Deserialize the Client Request
 def deserialize_client_request(msg_string, tid):
+  msg_string = msg_string.strip()
+
   commandRequest = deserialize_client_command_request(msg_string, tid)
   if commandRequest is not None:
     return commandRequest
@@ -76,7 +78,7 @@ def deserialize_client_request(msg_string, tid):
 
   msg_list = filter(lambda a: a != '', msg_list)
 
-  if msg_list[0].lower() == "crash": 
+  if msg_list[0].lower() == "crash":
     return CrashRequest(tid)
   elif msg_list[0].lower() == "vote":
     return VoteNoRequest(tid)

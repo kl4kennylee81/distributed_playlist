@@ -293,7 +293,9 @@ class Server:
       # up anything since you just fail
       # automatically maybe a kill signal
       # is all we need
-      self.crash_queue.append(request)
+      # self.crash_queue.append(request)
+      # TODO: find out about this? doesn't seem like a big deal though
+      self.exit()
 
   def add_voteNo_request(self,request):
     with self.global_lock:
@@ -451,6 +453,14 @@ class Server:
       self.coordinator_state = CoordinatorState.standby
 
   def exit(self):
-    pass
-    # We eithe issue a signal kill
-    # or we join all the threads and fail gracefully
+    # TODO: is this correct?
+
+    # self.master_server.master_conn.close()
+
+    for other, conn in self.other_procs.iteritems():
+      conn.close()
+
+    # self.internal_server.conn.close()
+
+    raise Exception("Commiting Seppuku")
+

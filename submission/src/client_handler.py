@@ -101,7 +101,7 @@ class ClientConnectionHandler(Thread):
       while self.valid:
         data = self.conn.recv(BUFFER_SIZE)
         msg = deserialize_message(str(data))
-        self.server.storage.write_debug("PID: {} received: {}".format(self.server.pid, data))
+        self.server.storage.write_debug("Received: {}".format(self.server.pid, data))
 
         if Identifier.msg_type == msg.type:
           self._idHandler(msg)
@@ -250,12 +250,13 @@ class ClientConnectionHandler(Thread):
         self.server.storage.write_debug("this is what is getting passed in man {}".format(msg.request))
         request = deserialize_client_request(msg.request, self.server.getTid())
         self.server.add_request(request)
-        print "PID: {} added {} to the queue".format(self.server.pid, request)
 
-        choice = Choice.yes
         forcedNo = self.server.pop_voteNo_request()
+
         if forcedNo != None:
           choice = Choice.no
+        else:
+          choice = Choice.yes
 
         # Log that we voted yes + then vote yes
         choiceMsg = Vote(self.server.pid, self.server.getTid(), choice)
@@ -270,13 +271,8 @@ class ClientConnectionHandler(Thread):
 
         afterVoteCrash = self.server.pop_crashAfterVote_request()
 
-        # TODO change this if we keep track of the leader to
-        # check if current leader == his own pid in a helper function
-        # is leader
         if afterVoteCrash != None and not self.server.isLeader():
           self.server.exit()
-      else:
-        print "uh oh", self.server.getState(), self.server.pid
 
 
   def _preCommitHandler(self, msg):
