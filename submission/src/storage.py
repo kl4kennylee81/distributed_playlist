@@ -1,5 +1,5 @@
-import os 
-
+# For use in transaction acquisiton
+from messages import client_req_from_log
 
 class Storage:
   """
@@ -8,16 +8,16 @@ class Storage:
   """
 
   # Constructor 
-  def __init__(self, pid): 
+  def __init__(self, pid):
     self.pid = pid
     self.dt_log = 'src/db/' + str(self.pid) + '_dt'
     self.disk = 'src/db/' + str(self.pid) + '_disk'
     self.debug = 'src/db/' + str(self.pid) + '_debug'
-
+    self.transactions = 'src/db/' + str(self.pid) + '_transactions'
     dt = open(self.dt_log, 'a'); dt.close()
     db = open(self.disk, 'a'); db.close()
     log = open(self.debug, 'a'); log.close()
-
+    txn = open(self.transactions, 'a'); txn.close()
 
   # Get data from a file + return the appropriate 
   # dictionary holding mappings (<songName: URL>) 
@@ -28,7 +28,15 @@ class Storage:
         vals = line.split(',')
         data[vals[0]] = vals[1]
     f.close() 
-    return data 
+    return data
+
+  # Get the listing of transactions
+  # (Add or Delete Message objects)
+  def get_transcations(self):
+    with open(self.transactions, 'r') as f:
+      result = [client_req_from_log(line, self.pid)
+                for line in [line.rstrip('\n') for line in f]]
+    return result 
 
   # Get an array of log messages from log file
   def get_dt_log(self): 
