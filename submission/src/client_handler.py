@@ -3,7 +3,7 @@ import socket
 from socket import SOCK_STREAM, AF_INET
 from threading import Thread
 
-from messages import VoteReq, PreCommit, Decision, Identifier, Vote, Ack, Reelect, StateReq
+from messages import VoteReq, PreCommit, Decision, Identifier, Vote, Ack, Reelect, StateReqResponse
 from messages import deserialize_message
 
 from crash_request_messages import deserialize_client_request
@@ -25,11 +25,9 @@ class ClientConnectionHandler(Thread):
     self.client_state = State.aborted
 
     self.participant_handlers = {
-      # These are coordinator sent messages ###
       VoteReq.msg_type: self._voteReqHandler,
       PreCommit.msg_type: self._preCommitHandler,
       Decision.msg_type: self._decisionHandler,
-      Identifier.msg_type: self._idHandler,
       #### These are for the special features ####
       # Recover.msg_type: Recover,
       # Reelect.msg_type: Reelect,
@@ -40,7 +38,6 @@ class ClientConnectionHandler(Thread):
     self.coordinator_handlers = {
       Vote.msg_type: self._voteHandler,
       Ack.msg_type: self._ackHandler,
-      Identifier.msg_type: self._idHandler,
     }
 
     # Handlers for timeouts
@@ -96,18 +93,19 @@ class ClientConnectionHandler(Thread):
       return self.valid and self.server.isValid()
 
   def run(self):
-    # TODO: Discuss need to send PID @ beginning of this connection's life
+    # on bootup, first send Identifier message to the processes you connected to
     id_msg = Identifier(self.server.pid, self.server.getTid(), self.server.getAtomicLeader())
     self.send(id_msg.serialize())
 
     try:
       while self.valid:
         data = self.conn.recv(BUFFER_SIZE)
-        print "this is data", data
         msg = deserialize_message(str(data))
-        self.server.storage.write_debug(data)
+        self.server.storage.write_debug("PID: {} received: {}".format(self.server.pid, data))
 
-        if self.server.isLeader():
+        if Identifier.msg_type == msg.type:
+          self._idHandler(msg)
+        elif self.server.isLeader():
           self._coordinatorRecv(msg)
         else:
           self._participantRecv(msg)
@@ -128,21 +126,6 @@ class ClientConnectionHandler(Thread):
       else:
         self._participant_timeout_handler()
 
-        # if it timeout from the coordinator
-        # need a local copy of who he thinks is
-        # the coordinator
-
-        # create a state handler here to handle failures
-        # for each state, one for coordinator handler failure
-        # and one for partcipants handler for his state
-        # for example coordinator in wait_acks on a failure
-        # would delete the alive guy and increment the count
-        # of acks responded
-
-        # remove self from alive list
-        # possibly when other procs is pid -> channel
-        # you make the pid key -> None, until some
-        # recovered new channel thread takes its place
 
   def _coordinator_timeout_handler(self):
     with self.server.global_lock:
@@ -167,7 +150,7 @@ class ClientConnectionHandler(Thread):
     If a process times out waiting for voteReq, unilaterally abort.
     """
     with self.server.global_lock:
-      abort = Decision(self.server.pid, self.server.getTid(), Decision.abort)
+      abort = Decision(self.server.pid, self.server.getTid(), Decide.abort)
       abortSerialized = abort.serialize()
       self.server.storage.write_dt_log(abortSerialized)
 
@@ -251,6 +234,7 @@ class ClientConnectionHandler(Thread):
       self.setClientPid(msg.pid)
 
       # this checks if atomic_leader is greater than the self.leader for this process
+      # if so, updates the leader
       self.server.setAtomicLeader(msg.atomic_leader)
 
 
@@ -263,11 +247,13 @@ class ClientConnectionHandler(Thread):
         # of the voteReq and also update your state to become consistent
 
         # Deserialize request and add it to the request queue
+        self.server.storage.write_debug("this is what is getting passed in man {}".format(msg.request))
         request = deserialize_client_request(msg.request, self.server.getTid())
         self.server.add_request(request)
+        print "PID: {} added {} to the queue".format(self.server.pid, request)
 
         choice = Choice.yes
-        forcedNo = server.pop_voteNo_request()
+        forcedNo = self.server.pop_voteNo_request()
         if forcedNo != None:
           choice = Choice.no
 
@@ -289,6 +275,8 @@ class ClientConnectionHandler(Thread):
         # is leader
         if afterVoteCrash != None and not self.server.isLeader():
           self.server.exit()
+      else:
+        print "uh oh", self.server.getState(), self.server.pid
 
 
   def _preCommitHandler(self, msg):
@@ -307,16 +295,20 @@ class ClientConnectionHandler(Thread):
   def _decisionHandler(self, msg):
     with self.server.global_lock:
       if self.server.getState() == State.committable:
-        if msg.decision == Decide.commit:
+        self.server.storage.write_debug(str(msg.decision))
+        self.server.storage.write_debug(str(msg.decision == Decide.commit))
+        self.server.storage.write_debug(str(Decide.commit))
+        if msg.decision == Decide.commit.name:
+          self.server.storage.write_debug("am commiting")
           self.server.commit_cur_request()
         else:
-          if msg.decision == Decide.abort:
+          if msg.decision == Decide.abort.name:
+            self.server.storage.write_debug("am aborting")
             self.storage.write_dt_log(msg.serialize())
       else:
         # if out of the commitable stage there can be a abort message
-        if msg.decision == Decide.abort:
+        if msg.decision == Decide.abort.name:
             self.storage.write_dt_log(msg.serialize())
-        pass
 
 
   # coordinator received messages vote, acks

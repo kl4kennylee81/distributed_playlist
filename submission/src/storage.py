@@ -85,6 +85,7 @@ class Storage:
 
   # Write debug message to file 
   def write_debug(self, debug_log):
+    print debug_log
     Storage._append_to_file(self.debug, debug_log)
 
 

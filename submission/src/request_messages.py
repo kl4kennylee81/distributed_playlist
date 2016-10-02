@@ -44,10 +44,21 @@ class Get(Request):
 
 # Deserialize the Client Request 
 def deserialize_client_command_request(msg_string, tid):
-  # Trim white space, split, and clean of extra spacing 
-  msg_string = msg_string.strip() 
-  msg_list = msg_string.split(" ")
+  # Trim white space, split, and clean of extra spacing
+  msg_string = msg_string.strip()
+
+  # this is because the first request from the master client will have format "add song url", while
+  # all other voteReqs attach "0,add song url"
+  msg_array = msg_string.split(",")
+  if len(msg_array) < 2:
+    msg_list = msg_string.split(" ")
+  else:
+    msg_list = msg_array[1]
+    msg_list = msg_list.split(" ")
+
   msg_list = filter(lambda a: a != '', msg_list)
+
+  print "msg list man", msg_list
 
   if msg_list[0].lower() == "add": 
     return Add(tid, msg_list[1], msg_list[2])

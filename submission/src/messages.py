@@ -220,7 +220,7 @@ class Identifier(Message):
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'], my_json['is_leader'])
+    return cls(my_json['pid'], my_json['tid'], my_json['atomic_leader'])
 
 
   def serialize(self):
@@ -240,7 +240,7 @@ MSG_CONSTRUCTORS = {
   Recover.msg_type: Recover, 
   Reelect.msg_type: Reelect,
   StateReq.msg_type: StateReq,
-  StateRepid.msg_type: StateRepid,
+  StateReqResponse.msg_type: StateReqResponse,
   Identifier.msg_type: Identifier,
 }
 

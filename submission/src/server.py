@@ -8,6 +8,7 @@ import sys
 
 # whitelist import from our files
 from request_messages import Add, Delete
+from messages import StateReq, Decision
 import storage
 
 from server_handler import ServerConnectionHandler
@@ -45,6 +46,8 @@ class Server:
       Add.msg_type: self._add_commit_handler,
       Delete.msg_type: self._delete_commit_handler,
     }
+
+    self.n = n
 
     # the pid is immutable you should never change this value after
     # the process starts. can access without a lock
@@ -191,6 +194,7 @@ class Server:
         the current leader. This is used to ignore new leaders that are lower """
     with self.global_lock:
       if new_leader > self.getAtomicLeader():
+        print "PID: {} set atomic leader from {} to {}".format(self.pid, self.getAtomicLeader(), new_leader)
         self.leader = new_leader
         return True
       return False
@@ -202,7 +206,7 @@ class Server:
   def getLeader(self):
     """ Returns the ACTUAL pids (from 0 ... n) of the current leader"""
     with self.global_lock:
-      return self.getAtomicLeader() % len(self.other_procs)
+      return self.getAtomicLeader() % self.n
 
   def isLeader(self):
     with self.global_lock:
@@ -276,7 +280,7 @@ class Server:
   def newParticipant(self, pid, new_thread):
     with self.global_lock:
       if self.isValid():
-        self.server.other_procs[pid] = new_thread
+        self.other_procs[pid] = new_thread
 
   def add_request(self, request):
     with self.global_lock:
@@ -402,15 +406,17 @@ class Server:
   def commit_cur_request(self):
     with self.global_lock:
       if self.isValid():
-          current_request = self.request_queue.popleft()
-          if current_request != None:
-            self.commandRequestExecutors[current_request.msg_type](current_request)
-            self.state = State.committed
+        current_request = self.request_queue.popleft()
+        print "here's what i got from currentreuqest:", current_request
+        if current_request != None:
+          self.commandRequestExecutors[current_request.msg_type](current_request)
+          self.setState(State.committed)
+          self.storage.write_debug("changed state ma!!!!!!! {} {}".format(self.getState(), self.pid))
 
   def coordinator_commit_cur_request(self):
     with self.global_lock:
       if self.isValid():
-          self.coordinator_state = CoordinatorState.completed
+          self.setCoordinatorState(CoordinatorState.completed)
           self.commit_cur_request()
 
   def _add_commit_handler(self,request):
