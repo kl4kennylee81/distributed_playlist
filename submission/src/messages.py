@@ -148,12 +148,12 @@ class StateReq(Message):
     json.dumps(undumped)
 
 
-# StateRepid
-class StateRepid(Message): 
+# StateReqResponse
+class StateReqResponse(Message):
   msg_type = 8 
 
   def __init__(self, pid, tid, state):
-    super(StateRepid, self).__init__(pid, tid, StateRepid.msg_type)
+    super(StateReqResponse, self).__init__(pid, tid, StateReqResponse.msg_type)
     self.state = State[state.lower()]
 
   @classmethod
@@ -161,7 +161,7 @@ class StateRepid(Message):
     return cls(my_json['pid'], my_json['tid'], my_json['state'])
 
   def serialize(self): 
-    myJSON = super(StateRepid, self).serialize() 
+    myJSON = super(StateReqResponse, self).serialize()
     myJSON['state'] = self.state.name
     return json.dumps(myJSON)
 
@@ -182,21 +182,24 @@ class Ack(Message):
     return json.dumps(myJSON)
 
 
-# Identify myself
+# Identifying at the beginning of connecting to hosts
 class Identifier(Message):
   msg_type = 10
 
-  def __init__(self, pid, tid, is_leader):
+  def __init__(self, pid, tid, is_leader, state):
     super(Identifier, self).__init__(pid, tid, Identifier.msg_type)
     self.is_leader = is_leader
+    self.state = state
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'], my_json['is_leader'])
+    return cls(my_json['pid'], my_json['tid'],
+               my_json['is_leader'], my_json['state'])
 
   def serialize(self):
     myJSON = super(Identifier, self).serialize()
     myJSON['is_leader'] = self.is_leader
+    myJSON['state'] = self.state.name
     return json.dumps(myJSON)
 
 # Constructors to be called in deserialize on a per-
@@ -210,7 +213,7 @@ MSG_CONSTRUCTORS = {
   Recover.msg_type: Recover, 
   Reelect.msg_type: Reelect,
   StateReq.msg_type: StateReq,
-  StateRepid.msg_type: StateRepid,
+  StateReqResponse.msg_type: StateReqResponse,
   Identifier.msg_type: Identifier,
 }
 

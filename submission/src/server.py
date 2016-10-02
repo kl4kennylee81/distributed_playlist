@@ -337,7 +337,9 @@ class Server:
     # We eithe issue a signal kill
     # or we join all the threads and fail gracefully
 
+
   def _setup_master_server_and_thread(self, port):
+    # Register master server reference
     master_server = socket.socket(AF_INET, SOCK_STREAM)
     master_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     master_server.bind((ADDRESS, port))
@@ -348,7 +350,9 @@ class Server:
     master_thread = MasterClientHandler(master_conn, self)
     master_thread.start()
 
+    # Return tuple
     return master_server, master_thread
+
 
   def _add_commit_handler(self, request):
     with self.global_lock:
@@ -372,41 +376,47 @@ class Server:
         del self.playlist[song_name]
 
 
+  def _connect_with_peers(self, n):
+    # Use port 20000 + i for each process' server socket, where is the
+    # considered process ID (PID).  Each process will search ports
+    # between 20000 and 20000 + n - 1 to see which process is alive.
+    #
+    # The server is passed into the handler threads because it essentially
+    # acts as the "Global" state.  It is a container and the thread
+    # corresponding to the socket connection registers itself with the
+    # server.
+
+    pass
+
+
   def _initial_socket_or_recovery_handler(self, n):
-    """
-    use port 20000+i for each process' server socket, where i is the process id.
-    Each process will search ports between 20000 and 20000+n-1 to see which
-    process is alive. To then connect to.
+    with self.global_lock:
 
-    The server is passed onto all the handler threads because it essentially acts
-    as a container for the "global state" of the processes server. Each of the
-    handler needs to reference the server "Global" to get the current state of
-    this participant and to interact and work collectively
-    """
+      # Initial Socket Connection Coordination
+      if not self.storage.has_dt_log():
+        no_socket = 0
+        for i in range(n):
+          try:
+            if i != self.pid:
+              # only try to connect to not yourself
+              port_to_connect = START_PORT + i
+              cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
+              cur_handler.start()
+          except:
+            # only connect to the sockets that are active
+            no_socket += 1
+            continue
+        # if you are the first socket to come up, you are the leader
+        if no_socket == (n - 1):
+          self.leader = self.pid
 
-    # Initial Socket Connection Coordination
-    if not self.storage.has_dt_log():
-      no_socket = 0
-      for i in range(n):
-        try:
-          if i != self.pid:
-            # only try to connect to not yourself
-            port_to_connect = START_PORT + i
-            cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
-            cur_handler.start()
-        except:
-          # only connect to the sockets that are active
-          no_socket += 1
-          continue
-      # if you are the first socket to come up, you are the leader
-      if no_socket == (n - 1):
-        self.leader = self.pid
+      # If you failed and come back up
+      else:
+        self.setState(State.blazed)
+        dt_log = self.storage.get_dt_log()
+        dt_log_arr = dt_log[len(dt_log)-1].split(',')
+        tid = int(dt_log_arr[0])
 
-    # If you failed and come back up
-    else:
-      dt_log = self.storage.get_dt_log()
-      dt_log_arr = dt_log[len(dt_log)-1].split(',')
-      tid = int(dt_log_arr[0])
 
 
 

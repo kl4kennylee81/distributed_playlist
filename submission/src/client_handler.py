@@ -49,6 +49,7 @@ class ClientConnectionHandler(Thread):
       State.aborted: self._voteReq_timeout,
       State.uncertain: self._preCommit_timeout,
       State.committable: self._commit_timeout,
+      State.blazed: self._blazed_timeout
     }
 
     self.coord_failureHandler = {
@@ -101,8 +102,10 @@ class ClientConnectionHandler(Thread):
       return self.valid and self.server.isValid()
 
   def run(self):
-    # TODO: Discuss need to send PID @ beginning of this connection's life
-    id_msg = Identifier(self.server.pid, self.server.getTid(), self.server.isLeader())
+    id_msg = Identifier(self.server.pid,
+                        self.server.getTid(),
+                        self.server.isLeader(),
+                        self.server.getState())
     self.send(id_msg.serialize())
 
     try:
@@ -119,8 +122,7 @@ class ClientConnectionHandler(Thread):
 
     except socket.timeout, e:
       self.server.storage.write_debug(str(e) + "\n[^] Timeout error")
-
-      self.valid = False  # TODO: why do we need self.valid?
+      self.valid = False
       self.server.other_procs[self.connection_pid] = None
       self.connection_pid = None
       self.conn.close()
@@ -167,14 +169,17 @@ class ClientConnectionHandler(Thread):
     """
     with self.server.global_lock:
       abort = Decision(self.server.pid, self.server.getTid(), Decide.abort)
-      abortSerialized = abort.serialize()
-      self.server.storage.write_dt_log(abortSerialized)
+      self.server.storage.write_dt_log(abort)
 
   def _preCommit_timeout(self):
     pass
 
   def _commit_timeout(self):
     pass
+
+  def _blazed_timeout(self):
+
+    self
 
   """ Coordinator timeout handlers """
 
@@ -244,9 +249,8 @@ class ClientConnectionHandler(Thread):
 
         # Log that we voted yes + then vote yes
         yesVote = Vote(self.server.pid, self.server.getTid(), Choice.yes)
-        yesVoteSerialized = yesVote.serialize()
-        self.server.storage.write_dt_log(yesVoteSerialized)
-        self.send(yesVoteSerialized)  # if participant crash
+        self.server.storage.write_dt_log(yesVote)
+        self.send(yesVote.serialize())  # if participant crash
 
         afterVoteCrash = self.server.pop_crashAfterVote_request()
 

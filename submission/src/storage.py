@@ -69,7 +69,7 @@ class Storage:
 
   # Check to see if a
   def has_dt_log(self):
-    return len(self.get_dt_log()) == 0
+    return len(self.get_dt_log()) != 0
 
   # Add a song as necessary to disk space 
   def add_song(self, song_name, song_url):

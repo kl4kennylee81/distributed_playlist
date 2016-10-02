@@ -6,7 +6,7 @@ ADDRESS = "localhost"
 TIMEOUT_SECS = 5.0
 
 # Possible server states 
-State = Enum('State', 'aborted uncertain committable committed')
+State = Enum('State', 'blazed aborted uncertain committable committed')
 
 # Possible coordinator states 
 CoordinatorState = Enum('CoordinatorState', 'standby votereq precommit completed')
