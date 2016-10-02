@@ -1,8 +1,11 @@
 import os 
 
-# Class to handle writing to various forms of stable storage 
-# on a per-process basis 
+
 class Storage:
+  """
+  Class to handle writing to various forms of stable storage
+  on a per-process basis
+  """
 
   # Constructor 
   def __init__(self, pid): 
@@ -10,7 +13,6 @@ class Storage:
     self.dt_log = './db/' + str(self.pid) + '_dt'
     self.disk = './db/' + str(self.pid) + '_disk'
     self.debug = './db/' + str(self.pid) + '_debug'
-
 
   # Get data from a file + return the appropriate 
   # dictionary holding mappings (<songName: URL>) 
@@ -30,22 +32,46 @@ class Storage:
     f.close() 
     return result
 
-  # Generic write function 
-  def _write_to_file(self, file_name, a_log):
+  # Add a song as necessary to disk space 
+  def add_song(self, song_name, song_url):
+    # Read in the lines of the file
+    f = open(self.disk,"r")
+    lines = f.readlines()
+    f.close()
+    song_in_file = False
+    # Write back appropriate values
+    with open(self.disk, "w") as f:
+      for line in lines:
+        if line.split(",")[0] == song_name:
+          f.write(song_name + ',' + song_url)
+          song_in_file = True
+        else:
+          f.write(line)
+      if not song_in_file:
+        f.write(song_name + ',' + song_url)
+
+  # Remove a song as necessary from disk space
+  def delete_song(self, song_name):
+    # Read in lines of the file
+    f = open(self.disk,"r")
+    lines = f.readlines()
+    f.close()
+    with open(self.disk, "w") as f:
+      for line in lines:
+        if line.split(",")[0] != song_name:
+          f.write(line)
+
+  @staticmethod
+  def _append_to_file(self, file_name, a_log):
     with open(file_name, 'a') as f:
       f.write(a_log + "\n")
-    f.close()
-
-  # Add a song as necessary to disk space 
-  def write_song(self, song_name, song_url): 
-    self._write_to_file(self.disk, song_name + ',' + song_url)
 
   # Write a DT log 
   def write_dt_log(self, a_log):
-    self._write_to_file(self.dt_log, a_log)
+    Storage._append_to_file(self.dt_log, a_log)
 
   # Write debug message to file 
   def write_debug(self, debug_log):
-    self._write_to_file(self.debug, debug_log)
+    Storage._append_to_file(self.debug, debug_log)
 
 

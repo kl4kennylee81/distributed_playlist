@@ -11,14 +11,11 @@ class ResponseCoordinator(object):
 
 class ResponseGet(object):
 
-  def __init__(self):
-    self.url = None
-
   def __init__(self, url): 
     self.url = url
 
   def serialize(self):
-    if self.url == None:
+    if self.url is None:
       resp = "NONE"
     else:
       resp = self.url
@@ -31,12 +28,13 @@ class ResponseAck(object):
   def __init__(self,decision):
     self.decision = decision
 
-
   def serialize(self):
     if self.decision == Decide.commit:
       decision_str = "commit"
+      return "ack {}\n".format(decision_str)
     elif self.decision == Decide.abort:
       decision_str = "abort"
-    s = "ack {}\n".format(decision_str)
-    return s
+      return "ack {}\n".format(decision_str)
+    else:
+      raise Exception("Improper decision")
 

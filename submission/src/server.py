@@ -4,10 +4,16 @@ import time
 from threading import Thread, Lock, RLock
 import socket
 from socket import SOCK_STREAM, AF_INET
-from messages import *
-from responseMessages import *
+
 from constants import *
 from collections import deque
+
+# In-house messaging support
+from messages import *
+# Response messages to the client
+from responseMessages import *
+# Stable storage writing support
+import storage
 
 
 BUFFER_SIZE = 1024
@@ -32,43 +38,60 @@ class MasterClientHandler(Thread):
     }
 
   def run(self):
+    """
+    Captures messages on the socket every iteration.
+    Calls corresponding handler.
+    """
     while True:
-      # TODO: logic for handling application requests
       data = self.master_conn.recv(BUFFER_SIZE)
-      self._parse_data(data)
-
-
-  def _parse_data(self, data):
-    deserialized = deserialize_client_req(data, self.server.pid)
-    self.handlers[deserialized.type](deserialized, self.server)
-
-  def _add_handler(self, deserialized, server):
-    with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-
-      voteReq = VoteReq(server.pid, deserialized.serialize())
-
-      server.broadCastMessage(voteReq)
+      deserialized = deserialize_client_req(data, self.server.pid, self.server.getTid())
+      self.handlers[deserialized.type](deserialized, self.server)
 
   def _get_handler(self, deserialized, server):
+    """
+    Processes GET request of data and responds to the master client.
+    :param deserialized: deserialized Message
+    :param server: an instance of any process
+    """
     with server.global_lock:
       # deliver back to the master client
       url = server.getUrl(deserialized.song_name)
       url_resp = ResponseGet(url)
-
       self.send(url_resp.serialize())
 
-  def _delete_handler(self, deserialized, server):
+  def _add_handler(self, deserialized, server):
+    """
+    Begins 3-Phase-Commit for the addition of a song
+    :param deserialized: deserialized Message
+    :param server: an instance of the COORDINATOR
+    """
     with server.global_lock:
       server.add_request(deserialized)
       server.setCoordinatorState(CoordinatorState.votereq)
 
-      voteReq = VoteReq(server.pid, deserialized.serialize())
+      # Compose VOTE-REQ, log, and send to all participants
+      voteReq = VoteReq(server.pid, server.getTid(), deserialized.serialize())
+      server.storage.write_dt_log(voteReq.serialize())
+      server.broadCastMessage(voteReq)
 
+
+  def _delete_handler(self, deserialized, server):
+    """
+    Begins 3-Phase-Commit for the deletion of a song
+    :param deserialized: deserialized Message
+    :param server: an instance of the COORDINATOR
+    """
+    with server.global_lock:
+      server.add_request(deserialized)
+      server.setCoordinatorState(CoordinatorState.votereq)
+      voteReq = VoteReq(server.pid, server.getTid(), deserialized.serialize())
       server.broadCastMessage(voteReq)
 
   def send(self, s):
+    """
+    Sends response to master client
+    :param s: message string
+    """
     with self.server.global_lock:
       self.master_conn.send(str(s))
 
@@ -108,11 +131,15 @@ class ClientConnectionHandler(Thread):
       # StateRepid.msg_type: StateRepid
     }
 
-    self.parti_failureHandler = {
-    }
+    # Handlers for timeouts
+    # TODO: Hong and Joe
+    self.parti_failureHandler = {}
+    self.coord_failureHandler = {}
 
-    self.coord_failureHandler = {
-    }
+    # Silencing warnings
+    self.server = None
+    self.conn = None
+    self.valid = None
 
   @classmethod
   def fromConnection(cls, conn, server):
@@ -132,21 +159,26 @@ class ClientConnectionHandler(Thread):
     return result
 
   def run(self):
-    id_msg = Identifier(self.server.pid)
+    # TODO: Add timeout to sockets
+    # TODO: Discuss need to send PID @ beginning of this connection's life
+    id_msg = Identifier(self.server.pid, self.server.getTid())
     self.send(id_msg.serialize())
     # I commented out the try except for debugging
     # try:
     while self.valid:
+
+      # Receive data on socket, deserialize it, and log it
       data = self.conn.recv(BUFFER_SIZE)
-
       msg = deserialize_message(str(data))
+      self.server.storage.write_debug(data)
 
-      print(data)
-
+      # Handle based on whether the process is a coordinator or a
+      # participant
       if self.server.getLeader():
         self.coordinatorRecv(msg)
       else:
         self.participantRecv(msg)
+
       # #
       # # ADD THE exception logic for timeouts here
       # # This will be where it will run termination protocol
@@ -178,15 +210,20 @@ class ClientConnectionHandler(Thread):
       #   # close the channel
       #   # return the thread
 
-  def coordinatorStateFailureHandler(self,server):
-    if server.getCoordinatorState() in self.coord_failureHandler:
-      coord_failureHandler[server.getCoordinatorState()](server)
+  def coordinatorStateFailureHandler(self, server):
+    try:
+      self.coord_failureHandler[server.getCoordinatorState()](server)
+    except KeyError, e:
+      self.server.storage.write_debug(str(e) + "\n[^] Invalid coordinator state")
 
-  def participantStateFailureHandler(self,server):
-    if server.getState() in self.parti_failureHandler:
-      parti_failureHandler[server.getState()](server)
+  def participantStateFailureHandler(self, server):
+    try:
+      self.parti_failureHandler[server.getState()](server)
+    except KeyError, e:
+      self.server.storage.write_debug(str(e) + "\n[^] Invalid participant state")
 
-  def _wait_votes_failure(server):
+
+  def _wait_votes_failure(self):
 
     # mark to state abort and wakeup the main process
     # to send out abort to everyone
@@ -194,13 +231,12 @@ class ClientConnectionHandler(Thread):
     # his normal state is changed he will
     # do something dependent on his coordinator state AND his Normal State
     # the participants act only based on their normal state
-    decision = Decision(server.pid,Decide.abort)
 
-    server.setCoordinatorState(CoordinatorState.standby)
+    abort = Decision(self.server.pid, self.server.getTid(), Decide.abort)
+    self.server.setCoordinatorState(CoordinatorState.standby)
+    self.server.broadCastMessage(abort)
 
-    server.broadCastMessage(decision)
-
-  def _wait_ack_failure(server):
+  def _wait_ack_failure(self):
     pass
 
     # don't mark state as aborted and update the ack_phase_responded+=1
@@ -214,93 +250,101 @@ class ClientConnectionHandler(Thread):
 #   and new one is elected how will it recognize its no
 #   longer the coordinator
 # '''
-  def coordinatorRecv(self,msg):
+  # TODO: Think about this really hard
+  def coordinatorRecv(self, msg):
     # do error handling if key error that means it got 
     # a message it was not suppose to
     self.coordinator_handlers[msg.type](msg,self.server)
 
-  def participantRecv(self,msg):
+  def participantRecv(self, msg):
     # do error handling if key error that means it got 
     # a message it was not suppose to
     self.participant_handlers[msg.type](msg,self.server)
 
+  # TODO: Check possible error?
+  def _idHandler(self, msg):
+    with self.server.global_lock:
+      self.server.other_procs[msg.pid] = self
 
-  def _idHandler(self,msg,server):
-    with server.global_lock:
-      server.other_procs[msg.pid] = self
-
-  # Participant recieved messages votereq,precommit,decision #
-  def _voteReqHandler(self,msg,server):
-    with server.global_lock:
-      if (server.getState() == State.aborted or server.getState() == State.committed):
-        server.setState(State.uncertain)
+  # Participant recieved messages votereq, precommit, decision #
+  def _voteReqHandler(self, msg):
+    with self.server.global_lock:
+      if self.server.getState() == State.aborted or self.server.getState() == State.committed:
+        self.server.setState(State.uncertain)
 
         # in the recovery mode you would check the response id (rid)
         # of the voteReq and also update your state to become consistent
 
-        request = deserialize_client_req(msg.request,server.pid)
-        server.add_request(request)
 
-        voteRes = Vote(server.pid,Choice.yes)
-        self.send(voteRes.serialize())
+        # Deserialize request and add it to the request queue
+        request = deserialize_client_req(msg.request, self.server.pid, self.server.getTid())
+        self.server.add_request(request)
 
-  def _preCommitHandler(self,msg,server):
-    with server.global_lock:
-      if (server.getState() == State.uncertain):
-        server.setState(State.committable)
+        # Log that we voted yes + then vote yes
+        yesVote = Vote(self.server.pid, self.server.getTid(), Choice.yes)
+        yesVoteSerialized = yesVote.serialize()
+        self.server.storage.write_dt_log(yesVoteSerialized)
+        self.send(yesVoteSerialized)
 
-        ackRes = Ack(server.pid)
+
+  def _preCommitHandler(self, msg):
+    with self.server.global_lock:
+      if self.server.getState() == State.uncertain:
+        self.server.setState(State.committable)
+
+        ackRes = Ack(self.server.pid, self.server.getTid())
         self.send(ackRes.serialize())
 
 
-  def _decisionHandler(self,msg,server):
-    with server.global_lock:
-      if (server.getState() == State.committable):
-        server.commit_cur_request()
+  def _decisionHandler(self, msg):
+    with self.server.global_lock:
+      if self.server.getState() == State.committable:
+        self.server.commit_cur_request()
       else:
         # maybe raise an error not sure? log something maybe
         pass
 
-  # coordinator received messages vote,acks
-  def _voteHandler(self,msg,server):
-    with server.global_lock:
-      if (server.getCoordinatorState() == CoordinatorState.votereq):
-        server.decrementResponsesNeeded()
-        if server.hasAllResponsesNeeded():
-          server.setCoordinatorState(CoordinatorState.precommit)
+  # coordinator received messages vote, acks
+  def _voteHandler(self, msg):
+    with self.server.global_lock:
+      if self.server.getCoordinatorState() == CoordinatorState.votereq:
+        self.server.decrementResponsesNeeded()
+        if self.server.hasAllResponsesNeeded():
+          self.server.setCoordinatorState(CoordinatorState.precommit)
           
-          precommit = PreCommit(server.pid)
-          server.broadCastMessage(precommit)
+          precommit = PreCommit(self.server.pid, self.server.getTid())
+          self.server.broadCastMessage(precommit)
 
         
-  def _ackHandler(self,msg,server):
-    with server.global_lock:
-      if (server.getCoordinatorState() == CoordinatorState.precommit):
-        server.decrementResponsesNeeded()
+  def _ackHandler(self, msg):
+    with self.server.global_lock:
+      if self.server.getCoordinatorState() == CoordinatorState.precommit:
+        self.server.decrementResponsesNeeded()
 
-        if server.hasAllResponsesNeeded():
-          server.coordinator_commit_cur_request()
+        if self.server.hasAllResponsesNeeded():
+          self.server.coordinator_commit_cur_request()
           
           d = Decide.commit
-          decision = Decision(server.pid,d)
-          server.broadCastMessage(decision)
+          decision = Decision(self.server.pid, self.server.getTid(), d)
 
+          self.server.broadCastMessage(decision)
           respAck = ResponseAck(d)
 
-          server.master_thread.send(respAck.serialize())
+          self.server.master_thread.send(respAck.serialize())
 
 
   def send(self, s):
     with self.server.global_lock:
-        if self.valid:
-            self.conn.send(str(s))
+      if self.valid:
+        self.conn.send(str(s))
+
 
   def close(self):
-      try:
-          self.valid = False
-          self.conn.close()
-      except:
-          pass
+    try:
+      self.valid = False
+      self.conn.close()
+    except socket.error, e:
+      self.server.storage.write_debug(str(e) + "\n[^] Socket error")
 
 
 class ServerConnectionHandler(Thread):
@@ -378,7 +422,7 @@ class Server:
     self.global_lock = RLock()
 
     # Global State: the current request id this server is working on
-    self.rid = 0
+    self.tid = 0
 
     # Global State: a queue of requests to process
     self.request_queue = deque()
@@ -391,6 +435,9 @@ class Server:
 
     # Global state: this is the threads currently active on the request id
     self.cur_request_set = set()
+
+    # Stable storage for this server
+    self.storage = storage.Storage(self.pid)
 
     # Global State:
     # Vote Phase: all vote yes
@@ -451,13 +498,13 @@ class Server:
     with self.global_lock:
       return self.responsesNeeded == 0
 
-  def incrementRid(self):
+  def incrementTid(self):
     with self.global_lock:
-      self.rid +=1
+      self.tid +=1
 
-  def getRid(self):
+  def getTid(self):
     with self.global_lock:
-      return self.rid
+      return self.tid
 
   def setLeader(self,isLeader):
     with self.global_lock:
@@ -483,7 +530,7 @@ class Server:
         self.resetState()
         
       elif newCoordState == CoordinatorState.votereq:
-        self.incrementRid()
+        self.incrementTid()
         self.setState(State.uncertain)
 
         self.setCurRequestProcesses()
@@ -506,10 +553,9 @@ class Server:
     with self.global_lock:
       self.state = newState
 
-  def newParticipant(pid,new_thread):
+  def newParticipant(self, pid, new_thread):
     with self.global_lock:
-      self.server.other_procs[pid] = new_client_thread
-
+      self.other_procs[pid] = new_thread
 
   def add_request(self,request):
     with self.global_lock:
@@ -541,14 +587,16 @@ class Server:
 
   def _add_commit_handler(self,request):
     with self.global_lock:
-      songname,url = request.song_name,request.url
-      self.playlist[songname] = url
+      song_name, url = request.song_name, request.url
+      self.storage.add_song(song_name, url)
+      self.playlist[song_name] = url
 
   def _delete_commit_handler(self,request):
     print("{} is deleting the entry".format(self.pid))
     with self.global_lock:
-      songname = request.song_name
-      del self.playlist[songname]
+      song_name = request.song_name
+      self.storage.delete_song(song_name)
+      del self.playlist[song_name]
 
 
   def resetState(self):

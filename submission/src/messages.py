@@ -7,14 +7,17 @@ from constants import *
 class Message: 
   __metaclass__ = ABCMeta
 
-  def __init__(self, pid, msg_type): 
-    self.pid = pid 
+  def __init__(self, pid, tid, msg_type):
+    self.pid = pid
+    self.tid = tid
     self.type = msg_type
 
   """Un-dumped JSON for use in subclasses"""
   @abstractmethod
   def serialize(self): 
-    return { "pid": self.pid, "type": self.type }
+    return { "pid": self.pid,
+             "rid": self.tid,
+             "type": self.type }
 
 
 # Internal message 
@@ -23,13 +26,13 @@ class Message:
 class Vote(Message): 
   msg_type = 1
 
-  def __init__(self, pid, choice): 
-    super(Vote, self).__init__(pid, Vote.msg_type) 
+  def __init__(self, pid, tid, choice):
+    super(Vote, self).__init__(pid, tid, Vote.msg_type)
     self.choice = choice
 
   @classmethod
-  def from_json(cls, my_json): 
-    return cls(my_json['pid'], my_json['choice'])
+  def from_json(cls, my_json):
+    return cls(my_json['pid'], my_json['tid'], my_json['choice'])
 
   def serialize(self):
     myJSON = super(Vote, self).serialize() 
@@ -42,13 +45,13 @@ class Vote(Message):
 class Decision(Message):
   msg_type = 2
 
-  def __init__(self, pid, decision):
-    super(Decision, self).__init__(pid, Decision.msg_type)
+  def __init__(self, pid, tid, decision):
+    super(Decision, self).__init__(pid, tid, Decision.msg_type)
     self.decision = decision
 
   @classmethod
   def from_json(cls, my_json): 
-    return cls(my_json['pid'], my_json['decision'])
+    return cls(my_json['pid'], my_json['tid'], my_json['decision'])
 
   def serialize(self): 
     myJSON = super(Decision, self).serialize() 
@@ -61,12 +64,12 @@ class Decision(Message):
 class PreCommit(Message): 
   msg_type = 3
 
-  def __init__(self, pid): 
-    super(PreCommit, self).__init__(pid, PreCommit.msg_type)
+  def __init__(self, pid, tid):
+    super(PreCommit, self).__init__(pid, tid, PreCommit.msg_type)
 
   @classmethod 
   def from_json(cls, my_json):
-    return cls(my_json['pid'])
+    return cls(my_json['pid'], my_json['tid'])
 
   def serialize(self): 
     undumped = super(PreCommit, self).serialize() 
@@ -78,15 +81,15 @@ class PreCommit(Message):
 class Recover(Message): 
   msg_type = 4 
 
-  def __init__(self, pid): 
-    super(Recover, self).__init__(pid, Recover.msg_type)
+  def __init__(self, pid, tid):
+    super(Recover, self).__init__(pid, tid, Recover.msg_type)
 
   @classmethod 
   def from_json(cls, my_json):
-    return cls(my_json['pid'])
+    return cls(my_json['pid'], my_json['tid'])
 
   def serialize(self): 
-    undumped = super(PreCommit, self).serialize() 
+    undumped = super(Recover, self).serialize()
     return json.dumps(undumped)
 
 
@@ -95,13 +98,13 @@ class Recover(Message):
 class Reelect(Message): 
   msg_type = 5 
 
-  def __init__(self, pid, new_coord_pid):
-    super(Reelect, self).__init__(pid, Reelect.msg_type)
+  def __init__(self, pid, tid, new_coord_pid):
+    super(Reelect, self).__init__(pid, tid, Reelect.msg_type)
     self.new_coord_pid = new_coord_pid
 
   @classmethod
   def from_json(cls, my_json): 
-    return cls(my_json['pid'], my_json['new_coord_pid'])
+    return cls(my_json['pid'], my_json['tid'], my_json['new_coord_pid'])
 
   def serialize(self): 
     myJSON = super(Reelect, self).serialize() 
@@ -113,13 +116,13 @@ class Reelect(Message):
 class VoteReq(Message):
   msg_type = 6 
 
-  def __init__(self, pid, request): 
-    super(VoteReq, self).__init__(pid, VoteReq.msg_type)
+  def __init__(self, pid, tid, request):
+    super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
     self.request = request
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['request'])
+    return cls(my_json['pid'], my_json['tid'], my_json['request'])
 
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
@@ -131,12 +134,12 @@ class VoteReq(Message):
 class StateReq(Message): 
   msg_type = 7 
 
-  def __init__(self, pid): 
-    super(StateReq, self).__init__(pid, StateReq.msg_type)
+  def __init__(self, pid, tid):
+    super(StateReq, self).__init__(pid, tid, StateReq.msg_type)
 
   @classmethod 
   def from_json(cls, my_json):
-    return cls(my_json['pid'])
+    return cls(my_json['pid'], my_json['tid'])
 
   def serialize(self): 
     undumped = super(StateReq, self).serialize() 
@@ -148,13 +151,13 @@ class StateReq(Message):
 class StateRepid(Message): 
   msg_type = 8 
 
-  def __init__(self, pid, state): 
-    super(StateRepid, self).__init__(pid, StateRepid.msg_type)
+  def __init__(self, pid, tid, state):
+    super(StateRepid, self).__init__(pid, tid, StateRepid.msg_type)
     self.state = State[state.lower()]
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['state'])
+    return cls(my_json['pid'], my_json['tid'], my_json['state'])
 
   def serialize(self): 
     myJSON = super(StateRepid, self).serialize() 
@@ -165,27 +168,28 @@ class StateRepid(Message):
 class Ack(Message): 
   msg_type = 9
 
-  def __init__(self, pid): 
-    super(Ack, self).__init__(pid, Ack.msg_type)
+  def __init__(self, pid, tid):
+    super(Ack, self).__init__(pid, tid, Ack.msg_type)
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'])
+    return cls(my_json['pid'], my_json['tid'])
 
   def serialize(self): 
     myJSON = super(Ack, self).serialize() 
     return json.dumps(myJSON)
 
+# Identify myself
 class Identifier(Message):
 
   msg_type = 10
 
-  def __init__(self,pid):
-    super(Identifier, self).__init__(pid, Identifier.msg_type)
+  def __init__(self, pid, tid):
+    super(Identifier, self).__init__(pid, tid, Identifier.msg_type)
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'])
+    return cls(my_json['pid'], my_json['tid'])
 
   def serialize(self):
     myJSON = super(Identifier, self).serialize() 
@@ -221,50 +225,50 @@ def deserialize_message(msg_string):
 class Add(Message): 
   msg_type = 11
 
-  def __init__(self, pid, song_name, url): 
-    super(Add, self).__init__(pid, Add.msg_type)
+  def __init__(self, pid, tid, song_name, url):
+    super(Add, self).__init__(pid, tid, Add.msg_type)
     self.song_name = song_name
     self.url = url
     
   def serialize(self):
-    return "add " + self.song_name + " " + self.url
+    return str(self.tid) + ",add " + self.song_name + " " + self.url
 
 # Delete 
 class Delete(Message): 
   msg_type = 12
 
-  def __init__(self, pid, song_name): 
-    super(Delete, self).__init__(pid, Delete.msg_type)
+  def __init__(self, pid, tid, song_name):
+    super(Delete, self).__init__(pid, tid, Delete.msg_type)
     self.song_name = song_name
 
   def serialize(self):
-    return "delete " + self.song_name
+    return str(self.tid) + ",delete " + self.song_name
 
 # Get 
 class Get(Message): 
   msg_type = 13
 
-  def __init__(self, pid, song_name): 
-    super(Get, self).__init__(pid, Get.msg_type)
+  def __init__(self, pid, tid, song_name):
+    super(Get, self).__init__(pid, tid, Get.msg_type)
     self.song_name = song_name
 
   def serialize(self):
-    return "get " + self.song_name
+    return str(self.tid) + ",get " + self.song_name
 
 
 # Deserialize the Client Request 
-def deserialize_client_req(msg_string, pid): 
+def deserialize_client_req(msg_string, pid, tid):
   # Trim white space, split, and clean of extra spacing 
   msg_string = msg_string.strip() 
   msg_list = msg_string.split(" ")
   msg_list = filter(lambda a: a != '', msg_list)
 
   if msg_list[0].lower() == "add": 
-    return Add(pid, msg_list[1], msg_list[2])
+    return Add(pid, tid, msg_list[1], msg_list[2])
   elif msg_list[0].lower() == "delete":
-    return Delete(pid, msg_list[1])
+    return Delete(pid, tid, msg_list[1])
   else: 
-    return Get(pid, msg_list[1])
+    return Get(pid, tid, msg_list[1])
 
 
 
