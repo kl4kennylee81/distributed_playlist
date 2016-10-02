@@ -1,12 +1,9 @@
 from constants import *
 from threading import Thread
-
-from messages import deserialize_client_req
-from messages import Add, Get, Delete, VoteReq
-
-from crashRequests import CrashRequest, VoteNoRequest, CrashAfterVoteRequest, CrashAfterAckRequest, \
-  CrashVoteRequest, CrashPartialCommit, CrashPartialPrecommit
-
+from messages import VoteReq
+from request_messages import Add, Delete, Get
+from crash_request_messages import CrashRequest, VoteNoRequest, CrashAfterVoteRequest, CrashAfterAckRequest, \
+  CrashVoteRequest, CrashPartialCommit, CrashPartialPrecommit, deserialize_client_request
 from response_messages import ResponseGet
 
 
@@ -41,7 +38,7 @@ class MasterClientHandler(Thread):
     while self.isValid():
       print Add.msg_type
       data = self.master_conn.recv(BUFFER_SIZE)
-      deserialized = deserialize_client_req(data, self.server.pid, self.server.getTid())
+      deserialized = deserialize_client_request(data, self.server.getTid())
       self.handlers[deserialized.type](deserialized, self.server)
 
   def isValid(self):

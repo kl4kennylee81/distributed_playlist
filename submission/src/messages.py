@@ -1,6 +1,7 @@
 import json
 from abc import ABCMeta, abstractmethod
 from constants import *
+from request_messages import client_req_from_log
 
 # Message class 
 class Message: 
@@ -38,7 +39,6 @@ class Vote(Message):
     return json.dumps(myJSON) 
 
 
-
 # Decision
 class Decision(Message):
   msg_type = 2
@@ -57,7 +57,6 @@ class Decision(Message):
     return json.dumps(myJSON) 
 
 
-
 # Pre-Commit
 class PreCommit(Message): 
   msg_type = 3
@@ -74,7 +73,6 @@ class PreCommit(Message):
     return json.dumps(undumped)
 
 
-
 # Recover 
 class Recover(Message): 
   msg_type = 4 
@@ -89,7 +87,6 @@ class Recover(Message):
   def serialize(self): 
     undumped = super(Recover, self).serialize()
     return json.dumps(undumped)
-
 
 
 # Reelect 
@@ -122,17 +119,47 @@ class VoteReq(Message):
   def hasTransactionDiff(self):
     return self.transaction_diff is not None
 
+  def setTransactionDiff(self, transaction_diff):
+    self.transaction_diff = transaction_diff
+
   @classmethod
   def from_json(cls, my_json):
-    # txn_diff = TransactionDiff.from_json(my_json['transaction_diff'])
-    # return cls(my_json['pid'], my_json['tid'], my_json['request'], txn_diff)
-    return cls(my_json['pid'], my_json['tid'], my_json['request'])
+    result = cls(my_json['pid'], my_json['tid'], my_json['request'])
+    # txn_diff = None if my_json['transaction_diff'] is None \
+    #   else VoteReq.TransactionDiff.from_json(my_json['transaction_diff'])
+    # result.setTransactionDiff(txn_diff)
+    return result
 
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
     # myJSON['transaction_diff'] = None if self.transaction_diff is None else self.transaction_diff.serialize()
     return json.dumps(myJSON)
+
+  # Inner, transaction-diff message component
+  class TransactionDiff:
+
+    def __init__(self, diff_start, transactions):
+      self.diff_start = diff_start
+      # To contain instances of Add or Delete (all with TID > diff_start)
+      self.transactions = [t for t in transactions if t.tid > diff_start]
+
+    @classmethod
+    def from_json(cls, my_json):
+      # Grab the diff_start we care about
+      diff_start = int(my_json['diff_start'])
+      # Grab a list of Adds and Deletes
+      transactions_string = my_json['transactions']
+      transactions = transactions_string.split(';')
+      transactions = [client_req_from_log(txn_log) for txn_log in transactions]
+      return cls(diff_start, transactions)
+
+    def serialize(self):
+      myJSON = dict()
+      result_arr = [msg.serialize() for msg in self.transactions]
+      myJSON['transactions'] = ';'.join(result_arr)
+      myJSON['diff_start'] = self.diff_start
+      return json.dumps(myJSON)
 
 
 # StateReq 
@@ -149,7 +176,6 @@ class StateReq(Message):
   def serialize(self): 
     undumped = super(StateReq, self).serialize() 
     json.dumps(undumped)
-
 
 
 # StateRepid
@@ -203,31 +229,6 @@ class Identifier(Message):
     return json.dumps(myJSON)
 
 
-# class TransactionDiff(Message):
-#   msg_type = 11
-#
-#   def __init__(self, pid, tid, transactions, diff_start):
-#     super(TransactionDiff, self).__init__(pid, tid, TransactionDiff.msg_type)
-#     self.transactions = transactions # To contain instances of Add or Delete
-#     self.diff_start = diff_start
-#
-#   @classmethod
-#   def from_json(cls, my_json):
-#     transactions_string = my_json['transactions']
-#     transactions = transactions_string.split(',')
-#     transactions = [client_req_from_log(txn, my_json['pid']) for txn in transactions]
-#     return cls(my_json['pid'], my_json['tid'], transactions, my_json['diff_start'])
-#
-#   def serialize(self):
-#     myJSON = super(TransactionDiff, self).serialize()
-#     result_arr = [msg.serialize()
-#                   for msg in self.transactions
-#                   if msg.tid > self.diff_start]
-#     myJSON['transactions'] = ';'.join(result_arr)
-#     myJSON['diff_start'] = self.diff_start
-    return json.dumps(myJSON)
-
-
 # Constructors to be called in deserialize on a per-
 # msg_type basis 
 MSG_CONSTRUCTORS = { 
@@ -241,7 +242,6 @@ MSG_CONSTRUCTORS = {
   StateReq.msg_type: StateReq,
   StateRepid.msg_type: StateRepid,
   Identifier.msg_type: Identifier,
-  # TransactionDiff.msg_type: TransactionDiff
 }
 
 
@@ -249,68 +249,6 @@ MSG_CONSTRUCTORS = {
 def deserialize_message(msg_string):
   myJSON = json.loads(msg_string)
   return MSG_CONSTRUCTORS[myJSON['type']].from_json(myJSON)
-
-
-
-# Master -> Server messages 
-
-# Add 
-class Add(Message): 
-  msg_type = 11
-
-  def __init__(self, pid, tid, song_name, url):
-    super(Add, self).__init__(pid, tid, Add.msg_type)
-    self.song_name = song_name
-    self.url = url
-
-  def serialize(self):
-    return str(self.tid) + ",add " + self.song_name + " " + self.url
-
-# Delete 
-class Delete(Message): 
-  msg_type = 12
-
-  def __init__(self, pid, tid, song_name):
-    super(Delete, self).__init__(pid, tid, Delete.msg_type)
-    self.song_name = song_name
-
-  def serialize(self):
-    return str(self.tid) + ",delete " + self.song_name
-
-# Get 
-class Get(Message): 
-  msg_type = 13
-
-  def __init__(self, pid, tid, song_name):
-    super(Get, self).__init__(pid, tid, Get.msg_type)
-    self.song_name = song_name
-
-  def serialize(self):
-    return str(self.tid) + ",get " + self.song_name
-
-
-# Deserialize the Client Request 
-def deserialize_client_req(msg_string, pid, tid):
-  # Trim white space, split, and clean of extra spacing 
-  msg_string = msg_string.strip() 
-  msg_list = msg_string.split(" ")
-  msg_list = filter(lambda a: a != '', msg_list)
-
-  if msg_list[0].lower() == "add": 
-    return Add(pid, tid, msg_list[1], msg_list[2])
-  elif msg_list[0].lower() == "delete":
-    return Delete(pid, tid, msg_list[1])
-  else: 
-    return Get(pid, tid, msg_list[1])
-
-# Function to handle pulling historical client requests
-# from the Transaction Log of a Process
-def client_req_from_log(log_string, pid):
-  comma = log_string.find(',')
-  tid = int(log_string[:comma])
-  msg_string = log_string[comma+1:]
-  return deserialize_client_req(msg_string, pid, tid)
-
 
 
 

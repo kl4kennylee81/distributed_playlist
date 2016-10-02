@@ -4,7 +4,9 @@ from socket import SOCK_STREAM, AF_INET
 from threading import Thread
 
 from messages import VoteReq, PreCommit, Decision, Identifier, Vote, Ack
-from messages import deserialize_message, deserialize_client_req
+from messages import deserialize_message
+
+from crash_request_messages import deserialize_client_request
 
 from response_messages import ResponseAck
 
@@ -233,7 +235,7 @@ class ClientConnectionHandler(Thread):
         # of the voteReq and also update your state to become consistent
 
         # Deserialize request and add it to the request queue
-        request = deserialize_client_req(msg.request, self.server.pid, self.server.getTid())
+        request = deserialize_client_request(msg.request, self.server.getTid())
         self.server.add_request(request)
 
         # Log that we voted yes + then vote yes

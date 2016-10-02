@@ -7,7 +7,7 @@ from threading import RLock
 import sys
 
 # whitelist import from our files
-from messages import Add, Delete
+from request_messages import Add, Delete
 import storage
 
 from server_handler import ServerConnectionHandler
@@ -152,7 +152,6 @@ class Server:
     # if you are the first socket to come up, you are the leader
     if no_socket == (n-1):
       self.leader = self.pid
-
 
   def isValid(self):
     with self.global_lock:
@@ -377,16 +376,16 @@ class Server:
         self.storage.delete_song(song_name)
         del self.playlist[song_name]
 
-  # Send transactions to the process identified by PID
-  # that start from diff_start
-  def send_transaction_diff(self, pid, diff_start):
-    with self.global_lock:
-      txn_diff = TransactionDiff(self.pid,
-                                 self.tid,
-                                 self.transaction_history,
-                                 diff_start)
-      # Send this to the desired process
-      self.other_procs[pid].send(txn_diff.serialize())
+  # # Send transactions to the process identified by PID
+  # # that start from diff_start
+  # def send_transaction_diff(self, pid, diff_start):
+  #   with self.global_lock:
+  #     txn_diff = TransactionDiff(self.pid,
+  #                                self.tid,
+  #                                self.transaction_history,
+  #                                diff_start)
+  #     # Send this to the desired process
+  #     self.other_procs[pid].send(txn_diff.serialize())
 
   def resetState(self):
     with self.global_lock:
