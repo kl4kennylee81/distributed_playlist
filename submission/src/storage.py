@@ -10,15 +10,20 @@ class Storage:
   # Constructor 
   def __init__(self, pid): 
     self.pid = pid
-    self.dt_log = './db/' + str(self.pid) + '_dt'
-    self.disk = './db/' + str(self.pid) + '_disk'
-    self.debug = './db/' + str(self.pid) + '_debug'
+    self.dt_log = 'src/db/' + str(self.pid) + '_dt'
+    self.disk = 'src/db/' + str(self.pid) + '_disk'
+    self.debug = 'src/db/' + str(self.pid) + '_debug'
+
+    dt = open(self.dt_log, 'a'); dt.close()
+    db = open(self.disk, 'a'); db.close()
+    log = open(self.debug, 'a'); log.close()
+
 
   # Get data from a file + return the appropriate 
   # dictionary holding mappings (<songName: URL>) 
   def get_disk(self): 
     data = {} 
-    with open(self.disk, 'r') as f:
+    with open(self.disk, 'r')  as f:
       for line in [line.rstrip('\n') for line in f]: 
         vals = line.split(',')
         data[vals[0]] = vals[1]
@@ -62,7 +67,7 @@ class Storage:
           f.write(line)
 
   @staticmethod
-  def _append_to_file(self, file_name, a_log):
+  def _append_to_file(file_name, a_log):
     with open(file_name, 'a') as f:
       f.write(a_log + "\n")
 
