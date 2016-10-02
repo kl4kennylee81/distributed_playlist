@@ -165,6 +165,7 @@ class StateRepid(Message):
     myJSON['state'] = self.state.name
     return json.dumps(myJSON)
 
+
 # Ack
 class Ack(Message): 
   msg_type = 9
@@ -180,6 +181,7 @@ class Ack(Message):
     myJSON = super(Ack, self).serialize() 
     return json.dumps(myJSON)
 
+
 # Identify myself
 class Identifier(Message):
   msg_type = 10
@@ -192,12 +194,10 @@ class Identifier(Message):
   def from_json(cls, my_json):
     return cls(my_json['pid'], my_json['tid'], my_json['is_leader'])
 
-
   def serialize(self):
     myJSON = super(Identifier, self).serialize()
     myJSON['is_leader'] = self.is_leader
     return json.dumps(myJSON)
-
 
 # Constructors to be called in deserialize on a per-
 # msg_type basis 
@@ -213,7 +213,6 @@ MSG_CONSTRUCTORS = {
   StateRepid.msg_type: StateRepid,
   Identifier.msg_type: Identifier,
 }
-
 
 # Deserialize (called for internal message passing)
 def deserialize_message(msg_string):

@@ -7,7 +7,6 @@ from messages import VoteReq, PreCommit, Decision, Identifier, Vote, Ack
 from messages import deserialize_message
 
 from crash_request_messages import deserialize_client_request
-
 from response_messages import ResponseAck
 
 class ClientConnectionHandler(Thread):

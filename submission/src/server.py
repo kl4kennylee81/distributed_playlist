@@ -16,142 +16,97 @@ from master_client_handler import MasterClientHandler
 
 class Server:
   """
-  use port 20000+i for each process' server socket, where i is the process id. 
-  Each process will search ports between 20000 and 20000+n-1 to see which
-  process is alive. To then connect to.
-
-  The server is passed onto all the handler threads because it essentially acts
-  as a container for the "global state" of the processes server. Each of the 
-  handler needs to reference the server "Global" to get the current state of
-  this participant and to interact and work collectively
-  """
-
-  """
-  Base Class for Server to extend to Coordinators and Participants
+  Overall Server class, containing the global state of the server
 
   Fields:
-  other_procs: A dict of pid -> socket channel
 
-  other_procs_lock: mutex for other_procs
+  - pid: ID of this process (immutable)
+  - global_lock: global lock
+  - leader: PID of the leader
+  - valid: is the whole server still active or crashing when False join all the threads
+         and then return OR do we just fail ungracefully and just do a sys exit
+  - coordinator_state: current phase of the coordinator's 3 phase commit
+  - state: current state for participants
+  - storage: stable storage for this server
+  - responsesNeeded:
+         Vote Phase - all vote yes; decrement on each incoming vote yes
+         Ack Phase - respone ack + timeouts decrement on each ack or timeouts
+  - playlist: playlist is the global dictionary mapping songname -> url
+  - other_procs: update other procs to be a mapping from pid -> thread
+  - tid: the current transaction id this server is working on
+  - cur_request_set: threads currently active on the transaction that is occurring
+  - request_queue: a queue of requests to process
+  - crash_queue: a queue of `crash` commands for this process
+  - voteNo_queue: a queue of `vote NO` commands for this process
+  - crashAfterVote_queue: a queue of `crashAfterVote` commands for this process
+  - crashAfterAck_queue: a queue of `crashAfterAck` commands for this process
+  - crashVoteReq_queue: a queue of `crashVoteReq` commands for this process (involves
+         failing after sending to a certain # of processes)
+  - crashPartialPrecommit_queue: a queue of `crashPartialPrecommit` for this process
+         (involves failing after sending to a certain # of processes)
+  - crashPartialCommit_queue: a queue of `crashPartialCommit` for this process (involves
+         failing after sending to a certain # of processes)
 
-  pid: The unique process id for this server
+  *** In Memory Logging -- Backed Up In Stable Storage ***
+  - transaction_history: list of previous, successful transactions (Adds + Deletes)
+  - last_alive_set: set of PIDs, indicating the set of processes that were last alive
 
-  server: The server socket that is listening on connection requests
-  to create new sockets for incoming connections
+  - master_server: reference to master server
+  - master_thread: reference to the thread dealing with the open socket with the master
+         server
+  - internal_server: server for other processes to connect to
+
   """
 
   def __init__(self, pid, n, port):
+
     self.commandRequestExecutors = {
       Add.msg_type: self._add_commit_handler,
       Delete.msg_type: self._delete_commit_handler,
     }
 
-    # the pid is immutable you should never change this value after
-    # the process starts. can access without a lock
+    # Fields
     self.pid = pid
-
-    # Global State : global lock
     self.global_lock = RLock()
-
-    # Global State : coordinator
-    # all the instance variables in here are "global states" for the server
     self.leader = -1  # leader not initializd yet
-
-    # Global State : is the whole server still active or crashing
-    # when False join all the threads and then return
-    # OR do we just fail ungracefully and just do a sys exit
     self.valid = True
-
-    # Global State: current phase of the coordinator's 3 phase commit
     self.coordinator_state = CoordinatorState.standby
-
-    # Global State: current state for participants
     self.state = State.aborted
 
-    # Global state: this is the threads currently active on the request id
+    self.storage = storage.Storage(self.pid)
+    self.responsesNeeded = sys.maxint
+    self.playlist = dict()
+    self.other_procs = dict()
+    self.tid = 0
     self.cur_request_set = set()
 
-    # Stable storage for this server
-    self.storage = storage.Storage(self.pid)
-
-    # Global State:
-    # Vote Phase: all vote yes
-    # decrement on each incoming vote yes
-    # Ack Phase: respone ack + timeouts
-    # decrement on each ack or timeouts
-    self.responsesNeeded = sys.maxint
-    
-    # Global State:
-    # playlist is the global dictionary mapping
-    # songname -> url
-    self.playlist = dict()
-
-    # Global State:
-    # update other procs to be a mapping from pid -> thread
-    self.other_procs = dict()
-
-    # GLOBAL FOR REQUEST COMMANDS
-    # Global State: the current transaction id this server is working on
-    self.tid = 0
-
-    # Global State: a queue of requests to process
+    # Various queues for tracking requests + crash messages
     self.request_queue = deque()
-
-    # CRASHING COMMAND GLOBAL QUEUES
     self.crash_queue = deque()
-
-    # PARTCIPANT CRASH QUEUE
     self.voteNo_queue = deque()
-
     self.crashAfterVote_queue = deque()
-
     self.crashAfterAck_queue = deque()
-
-    # COORDINATOR CRASH QUEUE
     self.crashVoteReq_queue = deque()
-
     self.crashPartialPrecommit_queue = deque()
-
     self.crashPartialCommit_queue = deque()
 
+    # Stable storage, in-memory
+    self.transaction_history = self.storage.get_transcations()
+    self.last_alive_set = set(self.storage.get_alive_set())
 
-    self.master_server = socket.socket(AF_INET, SOCK_STREAM) 
-    self.master_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    self.master_server.bind((ADDRESS, port))
+    # Setup master server / thread fields
+    self.master_server, self.master_thread = \
+      self._setup_master_server_and_thread(port)
 
-    # wait synchronously for the master to connect
-    self.master_server.listen(1)
-    (master_conn, (ip, master_client_port)) = self.master_server.accept()
-    self.master_thread = MasterClientHandler(master_conn, self)
-    self.master_thread.start()
-
-    # this is the socket that all the other internal participants connect to
+    # The socket that all other internal processes connect to
+    # for this process
     free_port_no = START_PORT + self.pid
     self.internal_server = ServerConnectionHandler(free_port_no, self)
     self.internal_server.start()
 
-    # Transaction history
-    self.transaction_history = self.storage.get_transcations()
+    # Initial socket connections or RECOVERY entrypoint
+    self._initial_socket_or_recovery_handler(n)
 
-    # Socket Connection Coordination
-    no_socket = 0
-    for i in range(n):
-      try:
-        if i != pid:
-          # only try to connect to not yourself
-          port_to_connect = START_PORT + i
-          cur_handler = ClientConnectionHandler.fromAddress(ADDRESS,
-                                                            port_to_connect,
-                                                            self)
-          cur_handler.start()
-      except:
-        # only connect to the sockets that are active
-        no_socket += 1
-        continue
-
-    # if you are the first socket to come up, you are the leader
-    if no_socket == (n-1):
-      self.leader = self.pid
 
   def isValid(self):
     with self.global_lock:
@@ -368,26 +323,6 @@ class Server:
           self.coordinator_state = CoordinatorState.completed
           self.commit_cur_request()
 
-  def _add_commit_handler(self,request):
-    with self.global_lock:
-      if self.isValid():
-        song_name, url = request.song_name, request.url
-        # Stable storage
-        self.storage.add_song(song_name, url)
-        self.log_transaction(request)
-        # Local change
-        self.playlist[song_name] = url
-
-  def _delete_commit_handler(self,request):
-    with self.global_lock:
-      if self.isValid():
-        song_name = request.song_name
-        # Stable storage
-        self.storage.delete_song(song_name)
-        self.log_transaction(request)
-        # Local change
-        del self.playlist[song_name]
-
   def serialize_transaction_history(self):
     return [t.serialize() for t in self.transaction_history]
 
@@ -401,3 +336,77 @@ class Server:
     pass
     # We eithe issue a signal kill
     # or we join all the threads and fail gracefully
+
+  def _setup_master_server_and_thread(self, port):
+    master_server = socket.socket(AF_INET, SOCK_STREAM)
+    master_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    master_server.bind((ADDRESS, port))
+
+    # wait synchronously for the master to connect
+    master_server.listen(1)
+    (master_conn, (_,_)) = master_server.accept()
+    master_thread = MasterClientHandler(master_conn, self)
+    master_thread.start()
+
+    return master_server, master_thread
+
+  def _add_commit_handler(self, request):
+    with self.global_lock:
+      if self.isValid():
+        song_name, url = request.song_name, request.url
+        # Stable storage
+        self.storage.add_song(song_name, url)
+        self.log_transaction(request)
+        # Local change
+        self.playlist[song_name] = url
+
+
+  def _delete_commit_handler(self, request):
+    with self.global_lock:
+      if self.isValid():
+        song_name = request.song_name
+        # Stable storage
+        self.storage.delete_song(song_name)
+        self.log_transaction(request)
+        # Local change
+        del self.playlist[song_name]
+
+
+  def _initial_socket_or_recovery_handler(self, n):
+    """
+    use port 20000+i for each process' server socket, where i is the process id.
+    Each process will search ports between 20000 and 20000+n-1 to see which
+    process is alive. To then connect to.
+
+    The server is passed onto all the handler threads because it essentially acts
+    as a container for the "global state" of the processes server. Each of the
+    handler needs to reference the server "Global" to get the current state of
+    this participant and to interact and work collectively
+    """
+
+    # Initial Socket Connection Coordination
+    if not self.storage.has_dt_log():
+      no_socket = 0
+      for i in range(n):
+        try:
+          if i != self.pid:
+            # only try to connect to not yourself
+            port_to_connect = START_PORT + i
+            cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
+            cur_handler.start()
+        except:
+          # only connect to the sockets that are active
+          no_socket += 1
+          continue
+      # if you are the first socket to come up, you are the leader
+      if no_socket == (n - 1):
+        self.leader = self.pid
+
+    # If you failed and come back up
+    else:
+      dt_log = self.storage.get_dt_log()
+      dt_log_arr = dt_log[len(dt_log)-1].split(',')
+      tid = int(dt_log_arr[0])
+
+
+
