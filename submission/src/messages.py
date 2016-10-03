@@ -75,7 +75,7 @@ class PreCommit(Message):
 
 # Reelect 
 class Reelect(Message): 
-  msg_type = 5 
+  msg_type = 4
 
   def __init__(self, pid, tid, new_coord_pid):
     super(Reelect, self).__init__(pid, tid, Reelect.msg_type)
@@ -93,7 +93,7 @@ class Reelect(Message):
 
 # VoteReq
 class VoteReq(Message):
-  msg_type = 6 
+  msg_type = 5
 
   def __init__(self, pid, tid, request, transactions_diff=None):
     super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
@@ -103,7 +103,7 @@ class VoteReq(Message):
 
   @classmethod
   def from_json(cls, my_json):
-    transactions_diff = None if my_json['transactions_diff'] is None else \
+    transactions_diff = None if my_json['transactions_diff'] == '' else \
       [client_req_from_log(t) for t in my_json['transactions_diff'].split(';')]
     result = cls(my_json['pid'], my_json['tid'], my_json['request'], transactions_diff)
     return result
@@ -111,14 +111,14 @@ class VoteReq(Message):
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
-    myJSON['transaction_diff'] = None if self.transactions_diff is None else \
+    myJSON['transactions_diff'] = None if self.transactions_diff is None else \
       ';'.join([t.serialize() for t in self.transactions_diff])
     return json.dumps(myJSON)
 
 
 # StateReq 
 class StateReq(Message): 
-  msg_type = 7 
+  msg_type = 6
 
   def __init__(self, pid, tid):
     super(StateReq, self).__init__(pid, tid, StateReq.msg_type)
@@ -134,7 +134,7 @@ class StateReq(Message):
 
 # StateReqResponse
 class StateReqResponse(Message):
-  msg_type = 8 
+  msg_type = 7
 
   def __init__(self, pid, tid, state):
     super(StateReqResponse, self).__init__(pid, tid, StateReqResponse.msg_type)
@@ -152,7 +152,7 @@ class StateReqResponse(Message):
 
 # Ack
 class Ack(Message): 
-  msg_type = 9
+  msg_type = 8
 
   def __init__(self, pid, tid):
     super(Ack, self).__init__(pid, tid, Ack.msg_type)
@@ -180,7 +180,7 @@ class Identifier(Message):
   - is_recovering: Boolean indicating if the sending process is recovering
   """
 
-  msg_type = 10
+  msg_type = 9
 
   def __init__(self, pid, tid, is_leader, state, last_alive_set, is_recovering):
 
@@ -196,6 +196,7 @@ class Identifier(Message):
                my_json['tid'],
                my_json['is_leader'],
                State[my_json['state']],
+               [] if my_json['last_alive_set'] == "" else \
                [int(s) for s in my_json['last_alive_set'].split(';')],
                my_json['is_recovering'])
 

@@ -251,12 +251,14 @@ class ClientConnectionHandler(Thread):
       self.connection_pid = msg.pid
       self.connection_tid = msg.tid
 
-      # If we're a recovering server
-      if self.server.get_is_recovering and \
-      self.server.getState() == State.uncertain:
+      # If we're a recovering server + the responding server is on
+      # the same transaction as us
+      if self.server.is_recovering and \
+      self.server.getState() == State.uncertain and \
+      self.connection_tid == self.server.getTid():
 
         # This is how we track processes we know about
-        self.server.cur_request_set.add(msg.pid)
+        self.server.recovered_set.add(msg.pid)
 
         # Reset this server's intersection to be an intersection
         # of its current intersection and the other process' last_alive_set
@@ -265,7 +267,7 @@ class ClientConnectionHandler(Thread):
 
         # R is a superset of the intersection of all the last_alive_sets of the
         # recovered processes
-        if self.server.intersection.issubset(self.server.cur_request_set):
+        if self.server.intersection.issubset(self.server.recovered_set):
           self.server.set_is_recovering(False) # We're no longer recovering
           # TODO: Initiate server re-election
           pass # Initiate server re-election
@@ -274,10 +276,11 @@ class ClientConnectionHandler(Thread):
   # Participant recieved messages votereq, precommit, decision #
   def _voteReqHandler(self, msg):
     with self.server.global_lock:
-      if self.server.getState() == State.aborted or self.server.getState() == State.committed:
+      if self.server.getState() == State.aborted \
+      or self.server.getState() == State.committed:
         self.server.setState(State.uncertain)
 
-        # If we're getting a VOTE-REQ, we're back in the flow of things 
+        # If we're getting a VOTE-REQ, we're back in the flow of things
         self.server.set_is_recovering(False)
 
         # in the recovery mode you would check the response id (rid)
@@ -309,7 +312,7 @@ class ClientConnectionHandler(Thread):
         self.send(ackRes.serialize())
 
         crashAfterAck = self.server.pop_crashAfterAck_request()
-        if crashAfterAck != None and not self.server.isLeader():
+        if crashAfterAck is not None and not self.server.isLeader():
           self.server.exit()
 
   def _decisionHandler(self, msg):
@@ -317,7 +320,7 @@ class ClientConnectionHandler(Thread):
       if self.server.getState() == State.committable:
         self.server.commit_cur_request()
       else:
-        # maybe raise an error not sure? log something maybe
+        # Will be merged
         pass
 
   # coordinator received messages vote, acks
@@ -331,12 +334,18 @@ class ClientConnectionHandler(Thread):
 
           crashPartialPreCommit = self.server.pop_crashPartialPrecommit()
           if crashPartialPreCommit is not None:
-            self.server.broadCastMessage(precommit, self.server.crashPartialPrecommit.sendTopid)
+            self.server.broadCastMessage(precommit, crashPartialPreCommit.sendTopid)
             self.server.exit()
           else:
             self.server.broadCastMessage(precommit)
 
   def _ackHandler(self, msg):
+    """
+
+    :param msg: Ack
+    :return:
+    """
+
     with self.server.global_lock:
       if self.server.getCoordinatorState() == CoordinatorState.precommit:
         self.server.decrementResponsesNeeded()

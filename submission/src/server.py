@@ -57,6 +57,7 @@ class Server:
 
   - intersection: FOR USE IN RECOVERY.. the current, logged intersection of PIDs
          of last alive processes
+  - recovered_set: List of PIDs indicating the processes who have recovered
 
   - master_server: reference to master server
   - master_thread: reference to the thread dealing with the open socket with the master
@@ -104,6 +105,7 @@ class Server:
 
     # For recovery
     self.intersection = self.last_alive_set.copy()
+    self.recovered_set = set(); self.recovered_set.add(self.pid)
 
     # Setup master server / thread fields
     self.master_server, self.master_thread = \
