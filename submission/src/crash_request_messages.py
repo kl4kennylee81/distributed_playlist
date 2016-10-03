@@ -86,7 +86,7 @@ def deserialize_client_request(msg_string, tid):
     return CrashAfterVoteRequest(tid)
   elif msg_list[0].lower() == "crashafterack": 
     return CrashAfterAckRequest(tid)
-  elif msg_list[0].lower() == "crashvotereq": 
+  elif msg_list[0].lower() == "crashvotereq":
     return CrashVoteRequest(tid,msg_list[1:])
   elif msg_list[0].lower() == "crashpartialprecommit":
     return CrashPartialPrecommit(tid,msg_list[1:])

@@ -10,7 +10,7 @@ import os
 # whitelist import from our files
 from request_messages import Add, Delete
 from response_messages import ResponseAck,ResponseCoordinator,ResponseGet
-from messages import StateReq, Decision, VoteReq
+from messages import StateReq, Decision, VoteReq, PreCommit
 import storage
 
 from server_handler import ServerConnectionHandler
@@ -162,23 +162,25 @@ class Server:
     with self.global_lock:
       return self.valid
 
-  def setResponsesNeeded(self):
-    with self.global_lock:
-      if self.isValid():
-        self.responsesNeeded = len(self.cur_request_set)
-
   # ONLY DIRECTLY SET IN THE CASE OF TERMINATION PROTOCOL
   # WHEN SENDING TO A SET OF UNDECIDED
-  def setResponsesNeeded(self,val):
-    with self.global_lock:
-      if self.isValid():
-        self.responsesNeeded = val
 
-  def decrementResponsesNeeded(self):
+  def setResponsesNeeded(self, request_set=None):
     with self.global_lock:
       if self.isValid():
-        if self.getResponsesNeeded() > 0:
-          self.responsesNeeded-=1
+        if request_set:
+          self.responsesNeeded = request_set
+        else:
+          self.responsesNeeded = set([proc.getClientPid() for proc in self.cur_request_set])
+
+
+  def deleteResponsesNeeded(self, pid):
+    with self.global_lock:
+      if self.isValid():
+        if len(self.responsesNeeded) > 0:
+          if pid in self.responsesNeeded:
+            self.responsesNeeded.remove(pid)
+
 
   def getResponsesNeeded(self):
     with self.global_lock:
@@ -187,7 +189,7 @@ class Server:
   def hasAllResponsesNeeded(self):
     with self.global_lock:
       if self.isValid():
-        return self.responsesNeeded == 0
+        return len(self.responsesNeeded) <= 0
       return False
 
   def incrementTid(self):
@@ -258,6 +260,10 @@ class Server:
         elif newCoordState == CoordinatorState.completed:
           self.setState(State.committed)
 
+        elif newCoordState == CoordinatorState.termination:
+          self.setCurRequestProcesses()
+          self.setResponsesNeeded()
+
   def setCurRequestProcesses(self):
     with self.global_lock:
       if self.isValid():
@@ -271,11 +277,11 @@ class Server:
     if client_pid == self.pid:
       return True
 
-    for client_procs in self.cur_request_set:
-      if client_pid == client_procs.getClientPid():
-        return True
+    active_pids = [client.getClientPid() for client in self.cur_request_set]
 
-    return False
+    print "{}. active_pids:{}, client_pid:{}".format(self.pid, active_pids, client_pid)
+
+    return (client_pid in active_pids)
 
   def remove_from_cur_transaction(self, client_pid):
     """ removes from the alive set and sets to None. Fails softly for key that doesn't exist """
@@ -323,7 +329,6 @@ class Server:
 
   def add_crashAfterVote_request(self,request):
     with self.global_lock:
-      print "@@@@@appending:", request
       self.crashAfterVote_queue.append(request)
 
   def add_crashAfterAck_request(self,request):
@@ -397,8 +402,8 @@ class Server:
     """
     with self.global_lock:
       if self.isValid():
+        print "{}. THE CUR REQUEST SET IS {}".format(self.pid,self.cur_request_set)
         for proc in self.cur_request_set:
-          print "should not be here"
           if sendTopid:
             if proc.getClientPid() in sendTopid:
               serialized = msg.serialize()
@@ -409,22 +414,24 @@ class Server:
 
   def broadCastStateReq(self):
     with self.global_lock:
+      self.setCoordinatorState(CoordinatorState.termination)
       stateReqMsg = StateReq(self.pid, self.getTid())
+      print "{}.broadcasting statereq {}".format(self.pid, stateReqMsg.serialize())
       self.broadCastMessage(stateReqMsg)
-      self.setResponsesNeeded()
       # also need to set the number of stateResponses needed
       # in the alive set of threads we'll keep track of their states
 
 
-  def broadCastAbort(self,sendTopid=None):
+  def broadCastAbort(self):
     with self.global_lock:
-      abortMsg = Decision(self.pid, self.getTid(), Decide.abort)
+      abortMsg = Decision(self.pid, self.getTid(), Decide.abort.name)
       self.setCoordinatorState(CoordinatorState.standby)
 
+      print "broadcasting abort man"
       abortSerialized = abortMsg.serialize()
       self.storage.write_dt_log(abortSerialized)
 
-      self.broadCastMessage(abortMsg,sendTopid)
+      self.broadCastMessage(abortMsg)
 
       # TODO send an ack to the master client with abort
       responseAck = ResponseAck(Decide.abort)
@@ -440,7 +447,7 @@ class Server:
       if len(self.cur_request_set) <= 0:
         self.coordinator_commit_cur_request()
       else:
-        voteReq = VoteReq(self.pid, deserialized.serialize())
+        voteReq = VoteReq(self.pid, self.getTid(), deserialized.serialize())
 
         crashAfterVoteReq = self.pop_crashVoteReq_request()
         if crashAfterVoteReq != None:
@@ -453,7 +460,7 @@ class Server:
     with self.global_lock:
       self.coordinator_commit_cur_request()
       self.setCoordinatorState(CoordinatorState.completed)
-      commitMsg = Decision(self.pid, self.tid, Decide.commit)
+      commitMsg = Decision(self.pid, self.tid, Decide.commit.name)
 
       crashPartialCommit = self.pop_crashPartialCommit()
       if crashPartialCommit is not None:
@@ -470,16 +477,16 @@ class Server:
   def broadCastPrecommit(self,sendTopid=None):
     with self.global_lock:
       self.setCoordinatorState(CoordinatorState.precommit)
-      precommit = Decision(self.pid, self.tid, Decide.precommit)
+      precommit = PreCommit(self.pid, self.getTid())
       crashPartialPreCommit = self.pop_crashPartialPrecommit()
       if crashPartialPreCommit is not None:
         if sendTopid != None:
-          setToSend = set.intersection(set(crashPartialPreCommit.sendTopid),set(sendTopid))
+          setToSend = set.intersection(set(crashPartialPreCommit.sendTopid), sendTopid)
 
           # sendTopid is passed in IN THE SPECIAL CASE when i am only sending it to the
           # uncertain peopl in the termination protocol I need to set my responsesNeeded to
           # the length of that list
-          self.setResponsesNeeded(len(sendTopid))
+          self.setResponsesNeeded(sendTopid)
         else:
           setToSend = crashPartialPreCommit.sendTopid
 
@@ -499,14 +506,19 @@ class Server:
   def coordinator_commit_cur_request(self):
     with self.global_lock:
       if self.isValid():
-          self.setCoordinatorState(CoordinatorState.completed)
+        # TODO get it from the log that i have already committed because for example I get
+        # TODO get elected leader and then am calling broadcastCommit again don't want to reexecute
+        print "coordinator_commit_cur_request"
+        if self.getState() != State.committed:
+          print "self.getState() != State.committed"
           self.commit_cur_request()
 
-          # TODO send an ack to the master client with commit
-          # TODO do we send the response before we crash aka before we send
-          # TODO aka when we commited the request
-          responseAck = ResponseAck(Decide.commit)
-          self.master_thread.send(responseAck.serialize())
+        # TODO send an ack to the master client with commit
+        # TODO do we send the response before we crash aka before we send
+        # TODO aka when we commited the request
+        responseAck = ResponseAck(Decide.commit)
+        self.master_thread.send(responseAck.serialize())
+        self.setCoordinatorState(CoordinatorState.completed)
 
   def _add_commit_handler(self,request):
     with self.global_lock:

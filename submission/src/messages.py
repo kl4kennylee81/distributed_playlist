@@ -27,7 +27,7 @@ class Vote(Message):
 
   def __init__(self, pid, tid, choice):
     super(Vote, self).__init__(pid, tid, Vote.msg_type)
-    self.choice = choice
+    self.choice = Choice[choice]
 
   @classmethod
   def from_json(cls, my_json):
@@ -45,14 +45,14 @@ class Decision(Message):
 
   def __init__(self, pid, tid, decision):
     super(Decision, self).__init__(pid, tid, Decision.msg_type)
-    self.decision = decision
+    self.decision = Decide[decision]
 
   @classmethod
   def from_json(cls, my_json): 
     return cls(my_json['pid'], my_json['tid'], my_json['decision'])
 
   def serialize(self): 
-    myJSON = super(Decision, self).serialize() 
+    myJSON = super(Decision, self).serialize()
     myJSON['decision'] = self.decision.name
     return json.dumps(myJSON) 
 
@@ -175,8 +175,7 @@ class StateReq(Message):
 
   def serialize(self): 
     undumped = super(StateReq, self).serialize() 
-    json.dumps(undumped)
-
+    return json.dumps(undumped)
 
 # StateRepid
 class StateReqResponse(Message):
