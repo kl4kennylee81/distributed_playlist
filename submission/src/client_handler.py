@@ -277,6 +277,9 @@ class ClientConnectionHandler(Thread):
       if self.server.getState() == State.aborted or self.server.getState() == State.committed:
         self.server.setState(State.uncertain)
 
+        # If we're getting a VOTE-REQ, we're back in the flow of things 
+        self.server.set_is_recovering(False)
+
         # in the recovery mode you would check the response id (rid)
         # of the voteReq and also update your state to become consistent
 
