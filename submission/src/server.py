@@ -128,6 +128,7 @@ class Server:
     # Initial socket connections or RECOVERY entrypoint
     self._initial_socket_or_recovery_handler()
 
+
   def isValid(self):
     with self.global_lock:
       return self.valid
@@ -563,20 +564,25 @@ class Server:
     :param n: Number of processes involved in the run of the system.
     :return: The number of sockets that don't exist
     """
-    no_socket = 0
-    for i in range(n):
-      try:
-        if i != self.pid:
-          # only try to connect to not yourself
-          port_to_connect = START_PORT + i
-          cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
-          cur_handler.start()
-      except:
-        # only connect to the sockets that are active
-        no_socket += 1
-        continue
+    with self.global_lock:
+      no_socket = 0
+      for i in range(n):
+        try:
+          # THIS inital connection step can't be threaded off at least not yet
+          # it must be synchronously trying to connect to maintain the power of the lock
+          # to stop the server socket from committing atrocities
 
-    return no_socket
+          if i != self.pid:
+            # only try to connect to not yourself
+            port_to_connect = START_PORT + i
+            cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
+            cur_handler.start()
+        except:
+          # only connect to the sockets that are active
+          no_socket += 1
+          continue
+
+      return no_socket
 
 
   def _initial_socket_or_recovery_handler(self):
@@ -592,7 +598,7 @@ class Server:
         no_socket = self._connect_with_peers(self.n)
         # if you are the first socket to come up, you are the leader
         if no_socket == (self.n - 1):
-          self.leader = self.pid
+          self.setAtomicLeader(self.pid)
 
       # If you failed and come back up
       else:

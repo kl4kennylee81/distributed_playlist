@@ -2,7 +2,7 @@
 from messages import client_req_from_log, Decision, Vote, VoteReq
 from constants import Choice
 
-DEBUG=False
+DEBUG=True
 
 def debug_print(s):
   if (DEBUG):

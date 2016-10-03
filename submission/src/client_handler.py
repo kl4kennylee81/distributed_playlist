@@ -40,7 +40,7 @@ class ClientConnectionHandler(Thread):
       Ack.msg_type: self._ackHandler,
       Reelect.msg_type: self._nopHandler,
       StateReqResponse.msg_type: self._stateReqResponseHandler,
-      StateReq.msg_type: self._stateReqHandler
+      StateReq.msg_type: self._stateReqHandler,
     }
 
     # Handlers for timeouts
@@ -48,7 +48,7 @@ class ClientConnectionHandler(Thread):
       State.aborted: self._voteReq_timeout,
       State.uncertain: self._preCommit_timeout,
       State.committable: self._commit_timeout,
-      State.committed: self._nop_timeout,
+      State.committed: self._committed_timeout,
     }
 
     self.coord_failureHandler = {
@@ -119,6 +119,8 @@ class ClientConnectionHandler(Thread):
     try:
       while self.isValid():
         data = self.conn.recv(BUFFER_SIZE)
+
+        print("{}->{}. RECV MSG {}".format(self.getClientPid(), self.server.pid,data))
         with self.server.global_lock:
           if len(data) <= 0:
             self.server.storage.write_debug("Got EOF from socket {}".format(self.getClientPid()))
@@ -161,6 +163,7 @@ class ClientConnectionHandler(Thread):
 
   def _participant_timeout_handler(self):
     with self.server.global_lock:
+      print "{}.In participant_timeout_handler with state {}".format(self.server.pid, self.server.getState().name)
       self.parti_failureHandler[self.server.getState()]()
 
   """ Participant timeout handlers """
@@ -184,6 +187,10 @@ class ClientConnectionHandler(Thread):
     debug_print("commit_timeout")
     self._send_election()
 
+  def _committed_timeout(self):
+    debug_print("committed_timeout")
+    self._send_election()
+
   # This is because EOF can be gotten at anytime thus you don't do anything
   # and then the timeout handler will close the thread and socket
   def _nop_timeout(self):
@@ -196,7 +203,6 @@ class ClientConnectionHandler(Thread):
     with self.server.global_lock:
       # round robin selection of next leader
       self.server.setCurRequestProcesses()
-      debug_print("{}. is it getting set or not {}".format(self.server.pid,self.server.cur_request_set))
       self._set_next_leader()
 
       if self.server.isLeader():
@@ -222,18 +228,14 @@ class ClientConnectionHandler(Thread):
     of the previous leader.
     """
     with self.server.global_lock:
-      debug_print("{}.set_next_leader".format(self.server.pid))
       active_pids = [proc.getClientPid() for proc in self.server.cur_request_set]
 
       for i in xrange(self.server.n):
         cur_leader = self.server.getAtomicLeader()+i
         cur_leader_index = cur_leader % self.server.n
 
-        debug_print("{}.cur_leader_index {}".format(self.server.pid,cur_leader_index))
-
         # skipping processes that aren't in the current transaction anymore
         if not self.server.is_in_cur_transaction(cur_leader_index):
-          debug_print("{}. did we escape jail at index {}".format(self.server.pid, cur_leader_index))
           continue
 
         elif cur_leader_index == self.server.pid:
