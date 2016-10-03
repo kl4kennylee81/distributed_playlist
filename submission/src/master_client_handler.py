@@ -105,6 +105,14 @@ class MasterClientHandler(Thread):
     with self.server.global_lock:
       self.master_conn.send(str(s))
 
+  def close(self):
+    try:
+      self.valid = False
+      self.master_conn.shutdown(socket.SHUT_RDWR)
+      self.master_conn.close()
+    except socket.error, e:
+      self.server.storage.write_debug(str(e) + "\n[^] Socket error")
+
   def _crash_handler(self, deserialized, server):
     print("we made it crash")
     self.server.add_crash_request(deserialized)

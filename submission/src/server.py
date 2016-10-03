@@ -454,12 +454,16 @@ class Server:
   def exit(self):
     # TODO: is this correct?
 
-    # self.master_server.master_conn.close()
+    with self.global_lock:
+      for other, conn in self.other_procs.iteritems():
+        conn.shutdown(socket.SHUT_RDWR)
+        conn.close()
 
-    for other, conn in self.other_procs.iteritems():
-      conn.close()
+      self.master_thread.close()
+      self.internal_server.close()
+      self.master_server.close()
 
-    # self.internal_server.conn.close()
+      self.isValid = False
 
     raise Exception("Commiting Seppuku")
 
