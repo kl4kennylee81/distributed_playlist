@@ -27,7 +27,7 @@ class Vote(Message):
 
   def __init__(self, pid, tid, choice):
     super(Vote, self).__init__(pid, tid, Vote.msg_type)
-    self.choice = choice
+    self.choice = Choice[choice]
 
   @classmethod
   def from_json(cls, my_json):
@@ -45,7 +45,7 @@ class Decision(Message):
 
   def __init__(self, pid, tid, decision):
     super(Decision, self).__init__(pid, tid, Decision.msg_type)
-    self.decision = decision
+    self.decision = Decide[decision]
 
   @classmethod
   def from_json(cls, my_json): 
