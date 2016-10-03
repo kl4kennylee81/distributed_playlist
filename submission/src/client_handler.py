@@ -7,6 +7,8 @@ from messages import VoteReq, PreCommit, Decision, Identifier, Vote, Ack, Reelec
 from messages import deserialize_message
 
 from crash_request_messages import deserialize_client_request
+from response_messages import ResponseAck
+
 
 class ClientConnectionHandler(Thread):
   """
@@ -17,10 +19,11 @@ class ClientConnectionHandler(Thread):
 
   def __init__(self):
     Thread.__init__(self)
-    # pid of the server on the other side of the socket.
-    # Determined after first messages are sent.
+
+    # Connection metadata
     self.client_pid = -1
     self.client_state = State.aborted
+    self.client_tid = 0
 
     self.participant_handlers = {
       VoteReq.msg_type: self._voteReqHandler,
@@ -58,6 +61,7 @@ class ClientConnectionHandler(Thread):
     self.conn = None
     self.valid = None
 
+
   @classmethod
   def fromConnection(cls, conn, server):
     result = cls()
@@ -79,9 +83,17 @@ class ClientConnectionHandler(Thread):
     with self.server.global_lock:
       self.client_pid = client_pid
 
+  def setClientTid(self, client_tid):
+    with self.server.global_lock:
+      self.client_tid = client_tid
+
   def getClientPid(self):
     with self.server.global_lock:
       return self.client_pid
+
+  def getClientTid(self):
+    with self.server.global_lock:
+      return self.client_tid
 
   def getClientState(self):
     with self.server.global_lock:
@@ -93,35 +105,40 @@ class ClientConnectionHandler(Thread):
 
   def run(self):
     # on bootup, first send Identifier message to the processes you connected to
-    id_msg = Identifier(self.server.pid, self.server.getTid(), self.server.getAtomicLeader())
+    id_msg = Identifier(self.server.pid,
+                        self.server.getTid(),
+                        self.server.getAtomicLeader(),
+                        self.server.getState(),
+                        self.server.get_last_alive_set(),
+                        self.server.is_recovering)
     self.send(id_msg.serialize())
 
     try:
       while self.isValid():
         data = self.conn.recv(BUFFER_SIZE)
+        with self.server.global_lock:
+          if len(data) <= 0:
+            self.server.storage.write_debug("Got EOF from socket {}".format(self.getClientPid()))
+            self._begin_timeout(True)
+            return
 
-        if len(data) <= 0:
-          self.server.storage.write_debug("Got EOF from socket {}".format(self.getClientPid()))
-          self._begin_timeout(True)
-          return
+          self.server.storage.write_debug("Received:{}, length:{}".format(data, len(data)))
 
-        self.server.storage.write_debug("Received:{}, length:{}".format(data, len(data)))
+          msg = deserialize_message(str(data))
 
-        msg = deserialize_message(str(data))
-
-        if Identifier.msg_type == msg.type:
-          self._idHandler(msg)
-        elif self.server.isLeader():
-          self._coordinatorRecv(msg)
-        else:
-          self._participantRecv(msg)
+          if Identifier.msg_type == msg.type:
+            self._idHandler(msg)
+          elif self.server.isLeader():
+            self._coordinatorRecv(msg)
+          else:
+            self._participantRecv(msg)
 
     # catching all exceptions more than just timeout
-    # TODO: figure out what the actual exceptions are
     except (socket.timeout, socket.error) as e:
-      self.server.storage.write_debug(str(e) + "[^] Timeout error or Socket Closed")
-      self._begin_timeout(False)
-      return
+      with self.server.global_lock:
+        self.server.storage.write_debug(str(e) + "[^] Timeout error or Socket Closed")
+        self._begin_timeout(False)
+        return
 
 
   def _begin_timeout(self, already_closed):
@@ -153,8 +170,7 @@ class ClientConnectionHandler(Thread):
     """
     with self.server.global_lock:
       abort = Decision(self.server.pid, self.server.getTid(), Decide.abort.name)
-      abortSerialized = abort.serialize()
-      self.server.storage.write_dt_log(abortSerialized)
+      self.server.storage.write_dt_log(abort)
 
 
   def _preCommit_timeout(self):
@@ -171,6 +187,8 @@ class ClientConnectionHandler(Thread):
   def _nop_timeout(self):
     pass
 
+
+  """ Coordinator timeout handlers """
 
   def _send_election(self):
     with self.server.global_lock:
@@ -190,12 +208,11 @@ class ClientConnectionHandler(Thread):
           # send out the stateReq to everybody that's in the cur_request_set
           self.server.broadCastStateReq()
 
-
-
       else:
         electMsg = Reelect(self.server.pid, self.server.getTid(), self.server.getAtomicLeader())
         newLeaderIndex = self.server.getLeader()
         self.server.other_procs[newLeaderIndex].send(electMsg.serialize())
+
 
   def _set_next_leader(self):
     """
@@ -228,7 +245,8 @@ class ClientConnectionHandler(Thread):
           self.server.setAtomicLeader(cur_leader)
           return
 
-      raise Exception("Server:{}... Election result is not found on Client:{}".format(self.server.pid, self.getClientPid()))
+      raise Exception("Server:{}... Election result is not found on Client:{}".format(self.server.pid,
+                                                                                      self.getClientPid()))
 
 
   """ Coordinator timeout handlers """
@@ -237,6 +255,7 @@ class ClientConnectionHandler(Thread):
   def _vote_timeout(self):
     """ The coordinator timed out waiting for a vote, so automatically aborts the transaction """
     with self.server.global_lock:
+      print "\n\nhey we were in the vote timeout and broadcasted aborts\n\n"
       self.server.broadCastAbort()
 
 
@@ -246,6 +265,7 @@ class ClientConnectionHandler(Thread):
     with self.server.global_lock:
       print "timed out on acks, entering ackhandler"
       self._ackHandler(None)
+
 
   def _termination_timeout(self):
     # we remove this client_pid from the responsesNeeded Set and then
@@ -263,29 +283,70 @@ class ClientConnectionHandler(Thread):
     with self.server.global_lock:
       self.participant_handlers[msg.type](msg)
 
+
   def _nopHandler(self, msg):
     pass
 
+
   def _idHandler(self, msg):
+    """
+    Handles reception of an Identifier message on a process level.
+
+    This handler deals with processes in two different states.
+
+    The process could be regrouping after it has just recovered
+    from failing, in which case it needs to see if other processes
+    exist that are undergoing a transaction.  If there are, it no
+    longer is recovering and "waits" until the next round of VOTE-
+    REQ.  It may attempt to arrange a full-system recovery (re-election)
+    if it finds the last process that failed on a full system failure.
+
+    Otherwise, the process is coming alive and establishing a socket +
+    a record of the process that is alive and working.
+
+    :param msg: Identifier message
+    """
+
     with self.server.global_lock:
+      # Necessary for all ID-ing message calls
       self.server.other_procs[msg.pid] = self
-      self.setClientPid(msg.pid)
 
-      # this checks if atomic_leader is greater than the self.leader for this process
-      # if so, updates the leader
       self.server.setAtomicLeader(msg.atomic_leader)
+      self.setClientPid(msg.pid)
+      self.setClientTid(msg.tid)
 
-      if self.server.getLeader() == self.getClientPid():
 
-        # only set timeout with connections to the leader
-        # otherwise just have the EOF be caught with internal connection with other participants
-        self.conn.settimeout(TIMEOUT_SECS)
+      # If we're a recovering server + the responding server is on
+      # the same transaction as us
+      if self.server.is_recovering and \
+      self.server.getState() == State.uncertain and \
+      self.getClientTid() == self.server.getTid():
+
+        # This is how we track processes we know about
+        self.server.recovered_set.add(msg.pid)
+
+        # Reset this server's intersection to be an intersection
+        # of its current intersection and the other process' last_alive_set
+        self.server.intersection = \
+          set.intersection(self.server.intersection, msg.last_alive_set)
+
+        # R is a superset of the intersection of all the last_alive_sets of the
+        # recovered processes
+        if self.server.intersection.issubset(self.server.recovered_set):
+          self.server.set_is_recovering(False) # We're no longer recovering
+          self._send_election()
 
 
   # Participant recieved messages votereq
   def _voteReqHandler(self, msg):
     with self.server.global_lock:
-      if self.server.getState() == State.aborted or self.server.getState() == State.committed:
+      if self.server.getState() == State.aborted \
+      or self.server.getState() == State.committed:
+        self.server.setState(State.uncertain)
+
+        # If we're getting a VOTE-REQ, we're back in the flow of things
+        self.server.set_is_recovering(False)
+
         # in the recovery mode you would check the response id (rid)
         # of the voteReq and also update your state to become consistent
 
@@ -295,25 +356,24 @@ class ClientConnectionHandler(Thread):
 
         forcedNo = self.server.pop_voteNo_request()
 
-        if forcedNo != None:
+        if forcedNo is not None:
           choice = Choice.no
         else:
           choice = Choice.yes
 
         # Log that we voted yes + then vote yes
         choiceMsg = Vote(self.server.pid, self.server.getTid(), choice.name)
-        choiceSerialized = choiceMsg.serialize()
-        self.server.storage.write_dt_log(choiceSerialized)
-        self.send(choiceSerialized)  # if participant crash
+        if choiceMsg.choice == Choice.yes: self.server.storage.write_dt_log(choiceMsg)
+        self.send(choiceMsg.serialize())  # if participant crash
 
-        if forcedNo != None:
+        if forcedNo is not None:
           self.server.setState(State.aborted)
         else:
           self.server.setState(State.uncertain)
 
         afterVoteCrash = self.server.pop_crashAfterVote_request()
 
-        if afterVoteCrash != None and not self.server.isLeader():
+        if afterVoteCrash is not None and not self.server.isLeader():
           self.server.exit()
 
 
@@ -326,7 +386,7 @@ class ClientConnectionHandler(Thread):
         self.send(ackRes.serialize())
 
         crashAfterAck = self.server.pop_crashAfterAck_request()
-        if crashAfterAck != None and not self.server.isLeader():
+        if crashAfterAck is not None and not self.server.isLeader():
           self.server.exit()
 
 
@@ -339,11 +399,11 @@ class ClientConnectionHandler(Thread):
           self.server.commit_cur_request()
         elif msg.decision == Decide.abort:
           self.server.storage.write_debug("am aborting")
-          self.server.storage.write_dt_log(msg.serialize())
+          self.server.storage.write_dt_log(msg)
       else:
         # if out of the commitable stage there can be a abort message
         if msg.decision == Decide.abort:
-            self.server.storage.write_dt_log(msg.serialize())
+            self.server.storage.write_dt_log(msg)
 
 
   # coordinator received messages vote, acks
@@ -360,6 +420,12 @@ class ClientConnectionHandler(Thread):
 
 
   def _ackHandler(self, msg):
+    """
+
+    :param msg: Ack
+    :return:
+    """
+
     with self.server.global_lock:
       if self.server.getCoordinatorState() == CoordinatorState.precommit:
         self.server.deleteResponsesNeeded(self.client_pid)
@@ -465,7 +531,6 @@ class ClientConnectionHandler(Thread):
           self.server.broadCastPrecommit(sendTopid)
       else:
         print("not supposed to be here")
-
 
 
   def send(self, s):

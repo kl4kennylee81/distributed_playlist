@@ -73,25 +73,9 @@ class PreCommit(Message):
     return json.dumps(undumped)
 
 
-# Recover 
-class Recover(Message): 
-  msg_type = 4 
-
-  def __init__(self, pid, tid):
-    super(Recover, self).__init__(pid, tid, Recover.msg_type)
-
-  @classmethod 
-  def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'])
-
-  def serialize(self): 
-    undumped = super(Recover, self).serialize()
-    return json.dumps(undumped)
-
-
 # Reelect 
 class Reelect(Message): 
-  msg_type = 5 
+  msg_type = 4
 
   def __init__(self, pid, tid, new_atomic_leader):
     super(Reelect, self).__init__(pid, tid, Reelect.msg_type)
@@ -109,62 +93,32 @@ class Reelect(Message):
 
 # VoteReq
 class VoteReq(Message):
-  msg_type = 6 
+  msg_type = 5
 
-  def __init__(self, pid, tid, request, transaction_diff=None):
+  def __init__(self, pid, tid, request, transactions_diff=None):
     super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
     self.request = request
-    # self.transaction_diff = transaction_diff # Instance of TransactionDiff
-
-  def hasTransactionDiff(self):
-    return self.transaction_diff is not None
-
-  def setTransactionDiff(self, transaction_diff):
-    self.transaction_diff = transaction_diff
+    # To contain instances of Add or Delete
+    self.transactions_diff = transactions_diff
 
   @classmethod
   def from_json(cls, my_json):
-    result = cls(my_json['pid'], my_json['tid'], my_json['request'])
-    # txn_diff = None if my_json['transaction_diff'] is None \
-    #   else VoteReq.TransactionDiff.from_json(my_json['transaction_diff'])
-    # result.setTransactionDiff(txn_diff)
+    transactions_diff = None if my_json['transactions_diff'] == '' else \
+      [client_req_from_log(t) for t in my_json['transactions_diff'].split(';')]
+    result = cls(my_json['pid'], my_json['tid'], my_json['request'], transactions_diff)
     return result
 
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
-    # myJSON['transaction_diff'] = None if self.transaction_diff is None else self.transaction_diff.serialize()
+    myJSON['transactions_diff'] = None if self.transactions_diff is None else \
+      ';'.join([t.serialize() for t in self.transactions_diff])
     return json.dumps(myJSON)
-
-  # Inner, transaction-diff message component
-  class TransactionDiff:
-
-    def __init__(self, diff_start, transactions):
-      self.diff_start = diff_start
-      # To contain instances of Add or Delete (all with TID > diff_start)
-      self.transactions = [t for t in transactions if t.tid > diff_start]
-
-    @classmethod
-    def from_json(cls, my_json):
-      # Grab the diff_start we care about
-      diff_start = int(my_json['diff_start'])
-      # Grab a list of Adds and Deletes
-      transactions_string = my_json['transactions']
-      transactions = transactions_string.split(';')
-      transactions = [client_req_from_log(txn_log) for txn_log in transactions]
-      return cls(diff_start, transactions)
-
-    def serialize(self):
-      myJSON = dict()
-      result_arr = [msg.serialize() for msg in self.transactions]
-      myJSON['transactions'] = ';'.join(result_arr)
-      myJSON['diff_start'] = self.diff_start
-      return json.dumps(myJSON)
 
 
 # StateReq 
 class StateReq(Message): 
-  msg_type = 7 
+  msg_type = 6
 
   def __init__(self, pid, tid):
     super(StateReq, self).__init__(pid, tid, StateReq.msg_type)
@@ -177,9 +131,11 @@ class StateReq(Message):
     undumped = super(StateReq, self).serialize() 
     return json.dumps(undumped)
 
-# StateRepid
+
+# StateReqResponse
 class StateReqResponse(Message):
-  msg_type = 8 
+  msg_type = 7
+
 
   def __init__(self, pid, tid, state):
     super(StateReqResponse, self).__init__(pid, tid, StateReqResponse.msg_type)
@@ -194,9 +150,10 @@ class StateReqResponse(Message):
     myJSON['state'] = self.state.name
     return json.dumps(myJSON)
 
+
 # Ack
 class Ack(Message): 
-  msg_type = 9
+  msg_type = 8
 
   def __init__(self, pid, tid):
     super(Ack, self).__init__(pid, tid, Ack.msg_type)
@@ -209,22 +166,45 @@ class Ack(Message):
     myJSON = super(Ack, self).serialize() 
     return json.dumps(myJSON)
 
-# Identify myself
-class Identifier(Message):
-  msg_type = 10
 
-  def __init__(self, pid, tid, atomic_leader):
+# Identifying at the beginning of connecting to hosts
+class Identifier(Message):
+  """
+  Initial message sent to a procedure on creation of a socket.
+  Fields:
+
+  - pid: Process ID (PID) of the sending process
+  - tid: Transaction ID that the sending process is on
+  - is_leader: Boolean indicating if the sending process is the leader
+  - state: State of the sending process
+  - last_alive_set: The list of PID's that were last alive (used for recovery)
+  - is_recovering: Boolean indicating if the sending process is recovering
+  """
+  msg_type = 9
+
+  def __init__(self, pid, tid, atomic_leader, state, last_alive_set, is_recovering):
     super(Identifier, self).__init__(pid, tid, Identifier.msg_type)
     self.atomic_leader = atomic_leader
+    self.state = state
+    self.last_alive_set = last_alive_set
+    self.is_recovering = is_recovering
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'], my_json['atomic_leader'])
-
+    return cls(my_json['pid'],
+               my_json['tid'],
+               my_json['atomic_leader'],
+               State[my_json['state']],
+               [] if my_json['last_alive_set'] == "" else \
+                 [int(s) for s in my_json['last_alive_set'].split(';')],
+               my_json['is_recovering'])
 
   def serialize(self):
     myJSON = super(Identifier, self).serialize()
     myJSON['atomic_leader'] = self.atomic_leader
+    myJSON['state'] = self.state.name
+    myJSON['last_alive_set'] = ';'.join([str(s) for s in self.last_alive_set])
+    myJSON['is_recovering'] = self.is_recovering
     return json.dumps(myJSON)
 
 
@@ -235,14 +215,12 @@ MSG_CONSTRUCTORS = {
   Vote.msg_type: Vote, 
   PreCommit.msg_type: PreCommit, 
   Ack.msg_type: Ack,
-  Decision.msg_type: Decision, 
-  Recover.msg_type: Recover, 
+  Decision.msg_type: Decision,
   Reelect.msg_type: Reelect,
   StateReq.msg_type: StateReq,
   StateReqResponse.msg_type: StateReqResponse,
   Identifier.msg_type: Identifier,
 }
-
 
 # Deserialize (called for internal message passing)
 def deserialize_message(msg_string):

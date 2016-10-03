@@ -1,0 +1,170 @@
+Tests just with two people
+
+Testing one guy and seeing if requests go through
+
+1 start 8 10003
+-1 add song url
+-1 get song
+
+url
+
+Testing case where new leader is elected but he’s the only one so he has to move on by examining his current state
+
+1 start 8 10003
+
+2 start 8 10004
+-1 crashPartialPreCommit 2
+-1 add song url
+-1 get song
+
+url
+
+Participant is uncertain so should lead to abort
+
+1 start 8 10003
+
+2 start 8 10004
+-1 crashVoteREQ 2
+-1 add song url
+-1 get song
+
+NONE
+
+Regular case testing vote no
+
+1 start 8 10003
+
+2 start 8 10004
+2 vote NO
+-1 add song url
+-1 get song
+
+NONE
+
+Crash after ack test, should be able to unilaterally commit
+
+1 start 8 10003
+
+2 start 8 10004
+2 crashAfterAck
+-1 add song url
+-1 get song
+
+url
+
+
+2 should become new leader and then commit
+
+1 start 8 10003
+
+2 start 8 10004
+-1 crashPartialPreCommit 2
+-1 add song url
+2 get song
+
+url
+
+
+test making sure that the new coordinator who has already doesn’t commit to the playlist again, meanwhile everyone else does
+
+1 start 8 10003
+
+2 start 8 10004
+-1 crashPartialPreCommit 2
+-1 add song url
+2 get song
+
+url 
+
+cases with 3 servers
+
+
+basic
+
+1 start 8 10003
+2 start 8 10004
+3 start 8 10005
+2 vote NO
+-1 add song url
+-1 get song
+
+NONE
+
+moving forward with one man down
+
+1 start 8 10003
+2 start 8 10004
+3 start 8 10005
+2 crashAfterVote
+-1 add song url
+3 get song
+
+url
+
+should ignore the crashed dude and move forward
+KennyS: it was able to reach completion and commited and then the EOF comes at the end
+
+1 start 8 10003
+2 start 8 10004
+4 start 8 10005
+2 crashAfterAck
+-1 add song url
+4 get song
+
+
+REelction yeah man
+
+1 start 4 10003
+2 start 4 10004
+3 start 4 10005
+-1 crashVoteREQ 2 3
+-1 add song url
+-1 get song
+
+NONE
+
+kill 2 while 2 is commitable and 3 is undecided, then 3 becomes commitable and then 2 dies, and then 3 is able to complete
+
+1 start 4 10003
+2 start 4 10004
+3 start 4 10005
+1 crashPartialPreCommit 2
+2 crashPartialPreCommit 3
+-1 add song url
+-1 get song
+
+url
+
+correct reelect order round robin
+
+3 start 4 10005
+2 start 4 10004
+1 start 4 10003
+-1 crashVoteReq 2 1
+-1 add song url
+-1 get song
+
+NONE
+
+2 in commited and 3 is undecided, so commits
+
+1 start 4 10003
+2 start 4 10004
+3 start 4 10005
+1 crashPartialCommit 2
+-1 add song url
+3 get song
+
+url
+
+2 is undecided and 3 commits, so 2 commits
+
+1 start 4 10003
+2 start 4 10004
+3 start 4 10005
+1 crashPartialCommit 3
+-1 add song url
+2 get song
+
+url
+
