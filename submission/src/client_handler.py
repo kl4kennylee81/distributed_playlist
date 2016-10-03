@@ -440,6 +440,9 @@ class ClientConnectionHandler(Thread):
   def close(self):
     try:
       self.valid = False
+
+      # close the connection socket
+        self.conn.shutdown(socket.SHUT_RDWR)
       self.conn.close()
     except socket.error, e:
       self.server.storage.write_debug(str(e) + "\n[^] Socket error")
