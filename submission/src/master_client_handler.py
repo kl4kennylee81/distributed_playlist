@@ -36,8 +36,8 @@ class MasterClientHandler(Thread):
     Calls corresponding handler.
     """
     while self.isValid():
-      print Add.msg_type
       data = self.master_conn.recv(BUFFER_SIZE)
+      self.server.storage.write_debug("Received from master client:" + data)
       deserialized = deserialize_client_request(data, self.server.getTid())
       self.handlers[deserialized.type](deserialized, self.server)
 

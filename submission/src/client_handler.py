@@ -10,6 +10,8 @@ from crash_request_messages import deserialize_client_request
 
 from response_messages import ResponseAck
 
+import pdb
+
 class ClientConnectionHandler(Thread):
   """
   Internal server process has an associated client handler thread to handle the
@@ -100,8 +102,13 @@ class ClientConnectionHandler(Thread):
     try:
       while self.valid:
         data = self.conn.recv(BUFFER_SIZE)
+
+        if len(data) <= 0:
+          raise Exception("Got EOF from socket")
+
+        self.server.storage.write_debug("Received:{}, length:{}".format(data, len(data)))
+
         msg = deserialize_message(str(data))
-        self.server.storage.write_debug("Received: {}".format(self.server.pid, data))
 
         if Identifier.msg_type == msg.type:
           self._idHandler(msg)
@@ -113,22 +120,23 @@ class ClientConnectionHandler(Thread):
     # catching all exceptions more than just timeout
     # TODO: figure out what the actual exceptions are
     except Exception, e:
-      self.server.storage.write_debug(str(e) + "\n[^] Timeout error")
+      self.server.storage.write_debug(str(e) + "[^] Timeout error or Socket Closed")
 
-      self.valid = False  # TODO: why do we need self.valid?
+      self.valid = False
       self.server.other_procs[self.getClientPid()] = None
       self.server.remove_from_cur_transaction(self.getClientPid())
-      self.setClientPid(-1)
       self.conn.close()
 
       if self.server.isLeader():
         self._coordinator_timeout_handler()
       else:
-        self._participant_timeout_handler()
+        if self.getClientPid() == self.server.getLeader():
+          self._participant_timeout_handler()
 
 
   def _coordinator_timeout_handler(self):
     with self.server.global_lock:
+      print "@@@@@@@@", self.server.getCoordinatorState()
       try:
         self.coord_failureHandler[self.server.getCoordinatorState()]()
       except KeyError, e:
@@ -186,7 +194,7 @@ class ClientConnectionHandler(Thread):
       n  = len(self.server.other_procs)
 
       for i in xrange(n):
-        cur_leader = self.getAtomicLeader()+i
+        cur_leader = self.server.getAtomicLeader()+i
         cur_leader_index = cur_leader % n
 
         # skipping processes that aren't in the current transaction anymore
@@ -201,7 +209,7 @@ class ClientConnectionHandler(Thread):
           self.server.setAtomicLeader(cur_leader)
           return
 
-      raise Exception("Election result is not found")
+      raise Exception("Server:{}... Election result is not found on Client:{}".format(self.server.pid, self.getClientPid()))
 
 
   """ Coordinator timeout handlers """
@@ -217,16 +225,24 @@ class ClientConnectionHandler(Thread):
     # the client_pid and thread has already been removed from the set of processes
     # active in this transaction by the exception handler
     with self.server.global_lock:
-      self._ackHandler(None, self.server)
+      print "timed out on acks, entering ackhandler"
+      self._ackHandler(None)
 
 
   def _coordinatorRecv(self, msg):
-    self.coordinator_handlers[msg.type](msg)
+    with self.server.global_lock:
+      try:
+        self.coordinator_handlers[msg.type](msg)
+      except KeyError, e:
+        self.server.storage.write_debug(str(e) + "\n[^] Invalid coordinator state")
 
 
   def _participantRecv(self, msg):
-    self.participant_handlers[msg.type](msg)
-
+    with self.server.global_lock:
+      try:
+        self.participant_handlers[msg.type](msg)
+      except KeyError, e:
+        self.server.storage.write_debug(str(e) + "\n[^] Invalid participant state")
 
   def _idHandler(self, msg):
     with self.server.global_lock:
@@ -247,7 +263,6 @@ class ClientConnectionHandler(Thread):
         # of the voteReq and also update your state to become consistent
 
         # Deserialize request and add it to the request queue
-        self.server.storage.write_debug("this is what is getting passed in man {}".format(msg.request))
         request = deserialize_client_request(msg.request, self.server.getTid())
         self.server.add_request(request)
 
@@ -291,9 +306,6 @@ class ClientConnectionHandler(Thread):
   def _decisionHandler(self, msg):
     with self.server.global_lock:
       if self.server.getState() == State.committable:
-        self.server.storage.write_debug(str(msg.decision))
-        self.server.storage.write_debug(str(msg.decision == Decide.commit))
-        self.server.storage.write_debug(str(Decide.commit))
         if msg.decision == Decide.commit.name:
           self.server.storage.write_debug("am commiting")
           self.server.commit_cur_request()
@@ -313,7 +325,6 @@ class ClientConnectionHandler(Thread):
       if self.server.getCoordinatorState() == CoordinatorState.votereq:
         if msg.choice == Choice.no:
           self.client_state = State.aborted
-
         else:
           self.client_state = State.uncertain
           self.server.decrementResponsesNeeded()
@@ -337,10 +348,10 @@ class ClientConnectionHandler(Thread):
         self.client_state = State.committable
 
         if self.server.hasAllResponsesNeeded():
-          self.server.coordinator_commit_cur_request()
-
           d = Decide.commit
           decision = Decision(self.server.pid, self.server.getTid(), d)
+
+          self._decisionHandler(decision)
 
           crashPartialCommit = self.server.pop_crashPartialCommit()
 
@@ -349,8 +360,8 @@ class ClientConnectionHandler(Thread):
             self.server.exit()
           else:
             self.server.broadCastMessage(decision)
-            respAck = ResponseAck(d)
 
+            respAck = ResponseAck(d)
             self.server.master_thread.send(respAck.serialize())
 
             # TODO check if crash partial commit

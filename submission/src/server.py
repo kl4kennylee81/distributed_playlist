@@ -303,6 +303,7 @@ class Server:
 
   def add_crashAfterVote_request(self,request):
     with self.global_lock:
+      print "@@@@@appending:", request
       self.crashAfterVote_queue.append(request)
 
   def add_crashAfterAck_request(self,request):
@@ -324,42 +325,42 @@ class Server:
   def pop_voteNo_request(self):
     with self.global_lock:
       if self.voteNo_queue: 
-        self.voteNo_queue.popleft()
+        return self.voteNo_queue.popleft()
       else:
         return None
 
   def pop_crashAfterVote_request(self):
     with self.global_lock:
-      if self.crashAfterVote_queue: 
-        self.crashAfterVote_queue.popleft()
+      if self.crashAfterVote_queue:
+        return self.crashAfterVote_queue.popleft()
       else:
         return None
 
   def pop_crashAfterAck_request(self):
     with self.global_lock:
       if self.crashAfterAck_queue: 
-        self.crashAfterAck_queue.popleft()
+        return self.crashAfterAck_queue.popleft()
       else:
         return None
 
   def pop_crashVoteReq_request(self):
     with self.global_lock:
       if self.crashVoteReq_queue: 
-        self.crashVoteReq_queue.popleft()
+        return self.crashVoteReq_queue.popleft()
       else:
         return None
 
   def pop_crashPartialPrecommit(self):
     with self.global_lock:
       if self.crashPartialPrecommit_queue: 
-        self.crashPartialPrecommit_queue.popleft()
+        return self.crashPartialPrecommit_queue.popleft()
       else:
         return None
 
   def pop_crashPartialCommit(self):
     with self.global_lock:
       if self.crashPartialCommit_queue: 
-        self.crashPartialCommit_queue.popleft()
+        return self.crashPartialCommit_queue.popleft()
       else:
         return None
 
@@ -409,11 +410,9 @@ class Server:
     with self.global_lock:
       if self.isValid():
         current_request = self.request_queue.popleft()
-        print "here's what i got from currentreuqest:", current_request
         if current_request != None:
           self.commandRequestExecutors[current_request.msg_type](current_request)
           self.setState(State.committed)
-          self.storage.write_debug("changed state ma!!!!!!! {} {}".format(self.getState(), self.pid))
 
   def coordinator_commit_cur_request(self):
     with self.global_lock:
