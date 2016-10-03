@@ -51,7 +51,6 @@ class ClientHandler(Thread):
             wait_ack = False
             wait_ack_lock.release()
           elif s[0] == 'ack':
-            print "got ack"
             wait_ack_lock.acquire()
             wait_ack = False
             wait_ack_lock.release()
@@ -64,8 +63,6 @@ class ClientHandler(Thread):
 
   def send(self, s):
     if self.valid:
-      print("Master is sending\n")
-      print(s)
       self.sock.send(str(s) + '\n')
 
   def close(self):
@@ -136,7 +133,6 @@ def main():
       leader_lock.release()
       live_list[pid] = True
       subprocess.Popen(['./process', str(pid), sp2[2], sp2[3]])
-      print "Started up a new process"
       # sleep for a while to allow the process be ready
       time.sleep(0.5)
       # connect to the port of the pid

@@ -9,6 +9,8 @@ from messages import deserialize_message
 from crash_request_messages import deserialize_client_request
 from response_messages import ResponseAck
 
+from storage import debug_print
+
 
 class ClientConnectionHandler(Thread):
   """
@@ -38,6 +40,7 @@ class ClientConnectionHandler(Thread):
       Ack.msg_type: self._ackHandler,
       Reelect.msg_type: self._nopHandler,
       StateReqResponse.msg_type: self._stateReqResponseHandler,
+      StateReq.msg_type: self._stateReqHandler
     }
 
     # Handlers for timeouts
@@ -121,7 +124,6 @@ class ClientConnectionHandler(Thread):
             self.server.storage.write_debug("Got EOF from socket {}".format(self.getClientPid()))
             self._begin_timeout(True)
             return
-
           self.server.storage.write_debug("Received:{}, length:{}".format(data, len(data)))
 
           msg = deserialize_message(str(data))
@@ -153,7 +155,7 @@ class ClientConnectionHandler(Thread):
 
   def _coordinator_timeout_handler(self):
     with self.server.global_lock:
-      print "{}.Timeout error handler for client_pid:{}".format(self.server.pid,self.getClientPid())
+      "{}.Timeout error handler for client_pid:{}".format(self.server.pid,self.getClientPid())
       self.coord_failureHandler[self.server.getCoordinatorState()]()
 
 
@@ -174,12 +176,12 @@ class ClientConnectionHandler(Thread):
 
 
   def _preCommit_timeout(self):
-    print "precommit_timeout"
+    debug_print("precommit_timeout")
     self._send_election()
 
 
   def _commit_timeout(self):
-    print "commit_timeout"
+    debug_print("commit_timeout")
     self._send_election()
 
   # This is because EOF can be gotten at anytime thus you don't do anything
@@ -194,7 +196,7 @@ class ClientConnectionHandler(Thread):
     with self.server.global_lock:
       # round robin selection of next leader
       self.server.setCurRequestProcesses()
-      print "{}. is it getting set or not {}".format(self.server.pid,self.server.cur_request_set)
+      debug_print("{}. is it getting set or not {}".format(self.server.pid,self.server.cur_request_set))
       self._set_next_leader()
 
       if self.server.isLeader():
@@ -220,19 +222,18 @@ class ClientConnectionHandler(Thread):
     of the previous leader.
     """
     with self.server.global_lock:
-      print "{}.set_next_leader".format(self.server.pid)
+      debug_print("{}.set_next_leader".format(self.server.pid))
       active_pids = [proc.getClientPid() for proc in self.server.cur_request_set]
 
       for i in xrange(self.server.n):
-        print i
         cur_leader = self.server.getAtomicLeader()+i
         cur_leader_index = cur_leader % self.server.n
 
-        print "{}.cur_leader_index {}".format(self.server.pid,cur_leader_index)
+        debug_print("{}.cur_leader_index {}".format(self.server.pid,cur_leader_index))
 
         # skipping processes that aren't in the current transaction anymore
         if not self.server.is_in_cur_transaction(cur_leader_index):
-          print "{}. did we escape jail at index {}".format(self.server.pid, cur_leader_index)
+          debug_print("{}. did we escape jail at index {}".format(self.server.pid, cur_leader_index))
           continue
 
         elif cur_leader_index == self.server.pid:
@@ -255,7 +256,6 @@ class ClientConnectionHandler(Thread):
   def _vote_timeout(self):
     """ The coordinator timed out waiting for a vote, so automatically aborts the transaction """
     with self.server.global_lock:
-      print "\n\nhey we were in the vote timeout and broadcasted aborts\n\n"
       self.server.broadCastAbort()
 
 
@@ -263,7 +263,6 @@ class ClientConnectionHandler(Thread):
     # the client_pid and thread has already been removed from the set of processes
     # active in this transaction by the exception handler
     with self.server.global_lock:
-      print "timed out on acks, entering ackhandler"
       self._ackHandler(None)
 
 
@@ -392,7 +391,6 @@ class ClientConnectionHandler(Thread):
 
   def _decisionHandler(self, msg):
     with self.server.global_lock:
-      print "{}. hit decision handler".format(self.server.pid)
       if self.server.getState() == State.committable or self.server.getState() == State.uncertain:
         if msg.decision == Decide.commit:
           self.server.storage.write_debug("am commiting")
@@ -436,13 +434,15 @@ class ClientConnectionHandler(Thread):
           self.server.broadCastCommit()
 
   def _stateReqHandler(self, msg):
+    # TODO think over this case again
+    # also called by coordinator because he can be replaced by a stateReq
+    # of someone that is higher value
     with self.server.global_lock:
-      print "hi"
-      # respond with my current state
-      stateResponseMsg = StateReqResponse(self.server.pid, self.server.getTid(), self.server.getState().name)
-      print "{}. sending stateReqResponse -> {}".format(self.server.pid,stateResponseMsg.serialize())
-      self.send(stateResponseMsg.serialize())
-
+      if self.server.setAtomicLeader(msg.atomic_leader):
+        # respond with my current state
+        stateResponseMsg = StateReqResponse(self.server.pid, self.server.getTid(), self.server.getState().name)
+        debug_print("{}. sending stateReqResponse -> {}".format(self.server.pid,stateResponseMsg.serialize()))
+        self.send(stateResponseMsg.serialize())
 
   def _reelectHandler(self, msg):
     """ Ignores any relect message coming in that is lower than the current atomic leader"""
@@ -473,7 +473,7 @@ class ClientConnectionHandler(Thread):
 
       allStates = [self.server.getState()]
 
-      print "{}. calling termination gather {}".format(self.server.pid,self.server.cur_request_set)
+      debug_print("{}. calling termination gather {}".format(self.server.pid,self.server.cur_request_set))
       # first case is check for aborts
       for client_proc in self.server.cur_request_set:
         allStates.append(client_proc.getClientState())
@@ -486,7 +486,7 @@ class ClientConnectionHandler(Thread):
       # second case is check for commit
       for tpState in allStates:
         if tpState == State.committed:
-          print "{}. did we broadcast commit to all".format(self.server.pid)
+          debug_print("{}. did we broadcast commit to all".format(self.server.pid))
           self.server.broadCastCommit()
           return
 
@@ -530,7 +530,7 @@ class ClientConnectionHandler(Thread):
           # will set you from if YOU were uncertain -> commitable
           self.server.broadCastPrecommit(sendTopid)
       else:
-        print("not supposed to be here")
+        debug_print("not supposed to be here")
 
 
   def send(self, s):

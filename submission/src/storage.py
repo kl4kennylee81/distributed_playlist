@@ -2,6 +2,12 @@
 from messages import client_req_from_log, Decision, Vote, VoteReq
 from constants import Choice
 
+DEBUG=False
+
+def debug_print(s):
+  if (DEBUG):
+    print s
+
 class Storage:
   """
   Class to handle writing to various forms of stable storage
@@ -181,9 +187,8 @@ class Storage:
     :param debug_log: A String
     """
     debug_message = "PID: {}, LOG: {}".format(self.pid, debug_message)
-    print debug_message
+    debug_print(debug_message)
     Storage._append_to_file(self.debug, debug_message)
-
 
   def write_transaction(self, txn):
     """

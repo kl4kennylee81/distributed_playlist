@@ -2,3 +2,4 @@
 
 killall -9 process
 killall -9 python
+./clean

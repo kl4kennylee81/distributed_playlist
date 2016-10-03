@@ -4,6 +4,7 @@ from socket import SOCK_STREAM, AF_INET
 from threading import Thread
 
 from client_handler import ClientConnectionHandler
+from storage import debug_print
 
 class ServerConnectionHandler(Thread):
   """
@@ -25,7 +26,7 @@ class ServerConnectionHandler(Thread):
     self.internal_server = socket.socket(AF_INET, SOCK_STREAM)
     self.internal_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     self.internal_server.bind((ADDRESS, free_port_no))
-    print "Initialized server socket at port {}".format(free_port_no)
+    debug_print("Initialized server socket at port {}".format(free_port_no))
 
   def isValid(self):
     with self.server.global_lock:
@@ -35,7 +36,7 @@ class ServerConnectionHandler(Thread):
     while self.isValid():
       self.internal_server.listen(0)
       (conn, (ip,port)) = self.internal_server.accept()
-      print("Pid {}: Connection Accepted".format(self.server.pid))
+      debug_print("Pid {}: Connection Accepted".format(self.server.pid))
 
       with self.server.global_lock:
         new_client_thread = ClientConnectionHandler.fromConnection(conn, self.server)

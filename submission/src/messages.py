@@ -79,7 +79,7 @@ class Reelect(Message):
 
   def __init__(self, pid, tid, new_atomic_leader):
     super(Reelect, self).__init__(pid, tid, Reelect.msg_type)
-    self.new_atomic_leader = new_atomic_leader
+    self.new_atomic_leader = int(new_atomic_leader)
 
   @classmethod
   def from_json(cls, my_json): 
@@ -120,16 +120,21 @@ class VoteReq(Message):
 class StateReq(Message): 
   msg_type = 6
 
-  def __init__(self, pid, tid):
+  def __init__(self, pid, tid, atomic_leader):
     super(StateReq, self).__init__(pid, tid, StateReq.msg_type)
+    self.atomic_leader = atomic_leader
+    # as the new coordinator the stateReq must piggy back the new
+    # atomic leader number to make sure the receiver will ignore it
+    # or accept him as the new leader
 
   @classmethod 
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'])
+    return cls(my_json['pid'], my_json['tid'], my_json['atomic_leader'])
 
   def serialize(self): 
-    undumped = super(StateReq, self).serialize() 
-    return json.dumps(undumped)
+    myJSON = super(StateReq, self).serialize() 
+    myJSON['atomic_leader'] = self.atomic_leader
+    return json.dumps(myJSON)
 
 
 # StateReqResponse

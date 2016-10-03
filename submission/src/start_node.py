@@ -4,6 +4,7 @@ import time
 from threading import Thread, Lock
 from socket import SOCK_STREAM, socket, AF_INET
 import server
+from storage import debug_print
 
 def main():
   """ 
@@ -12,7 +13,7 @@ def main():
   """
   pid, n, port = map(int, sys.argv[1:])
   server.Server(pid, n, port)
-  print "Finished starting up process {} at port {}".format(pid, port)
+  debug_print("Finished starting up process {} at port {}".format(pid, port))
 
 if __name__ == "__main__":
   main()
