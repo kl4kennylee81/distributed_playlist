@@ -42,11 +42,11 @@ class ServerConnectionHandler(Thread):
         new_client_thread.start()
 
   def close(self):
-    with self.global_lock:
-      try:
-        self.valid = False
-
-        # close the listener server socket
-        self.internal_server.close()
-      except socket.error, e:
-        self.server.storage.write_debug(str(e) + "\n[^] Socket error")
+    if self.isValid():
+      with self.server.global_lock:
+        try:
+          # close the listener server socket
+          self.internal_server.close()
+          self.valid = False
+        except socket.error, e:
+          self.server.storage.write_debug(str(e) + "\n[^] Server Socket error while closing")

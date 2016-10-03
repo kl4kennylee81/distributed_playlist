@@ -5,10 +5,12 @@ from socket import SOCK_STREAM, AF_INET
 from collections import deque
 from threading import RLock
 import sys
+import os
 
 # whitelist import from our files
 from request_messages import Add, Delete
-from messages import StateReq, Decision
+from response_messages import ResponseAck,ResponseCoordinator,ResponseGet
+from messages import StateReq, Decision, VoteReq
 import storage
 
 from server_handler import ServerConnectionHandler
@@ -165,6 +167,13 @@ class Server:
       if self.isValid():
         self.responsesNeeded = len(self.cur_request_set)
 
+  # ONLY DIRECTLY SET IN THE CASE OF TERMINATION PROTOCOL
+  # WHEN SENDING TO A SET OF UNDECIDED
+  def setResponsesNeeded(self,val):
+    with self.global_lock:
+      if self.isValid():
+        self.responsesNeeded = val
+
   def decrementResponsesNeeded(self):
     with self.global_lock:
       if self.isValid():
@@ -194,8 +203,15 @@ class Server:
         the current leader. This is used to ignore new leaders that are lower """
     with self.global_lock:
       if new_leader > self.getAtomicLeader():
-        print "PID: {} set atomic leader from {} to {}".format(self.pid, self.getAtomicLeader(), new_leader)
+        old = self.getAtomicLeader()
+        oldindex = self.getLeader()
         self.leader = new_leader
+        print "PID: {} set Atomic:{}->{}, Actual: {}->{}".format(self.pid, old, new_leader,oldindex, self.getLeader())
+
+        # ping master client of new leader
+        new_coord = ResponseCoordinator(self.getLeader())
+        self.master_thread.send(new_coord.serialize())
+
         return True
       return False
 
@@ -252,9 +268,13 @@ class Server:
         self.cur_request_set = newAliveSet
 
   def is_in_cur_transaction(self,client_pid):
+    if client_pid == self.pid:
+      return True
+
     for client_procs in self.cur_request_set:
       if client_pid == client_procs.getClientPid():
         return True
+
     return False
 
   def remove_from_cur_transaction(self, client_pid):
@@ -378,6 +398,7 @@ class Server:
     with self.global_lock:
       if self.isValid():
         for proc in self.cur_request_set:
+          print "should not be here"
           if sendTopid:
             if proc.getClientPid() in sendTopid:
               serialized = msg.serialize()
@@ -388,14 +409,14 @@ class Server:
 
   def broadCastStateReq(self):
     with self.global_lock:
-      stateReqMsg = StateReq(self.pid)
+      stateReqMsg = StateReq(self.pid, self.getTid())
       self.broadCastMessage(stateReqMsg)
       self.setResponsesNeeded()
       # also need to set the number of stateResponses needed
       # in the alive set of threads we'll keep track of their states
 
 
-  def broadCastAbort(self):
+  def broadCastAbort(self,sendTopid=None):
     with self.global_lock:
       abortMsg = Decision(self.pid, self.getTid(), Decide.abort)
       self.setCoordinatorState(CoordinatorState.standby)
@@ -403,8 +424,69 @@ class Server:
       abortSerialized = abortMsg.serialize()
       self.storage.write_dt_log(abortSerialized)
 
-      self.broadCastMessage(abortMsg)
+      self.broadCastMessage(abortMsg,sendTopid)
 
+      # TODO send an ack to the master client with abort
+      responseAck = ResponseAck(Decide.abort)
+      self.master_thread.send(responseAck.serialize())
+
+  def broadCastVoteReq(self,deserialized):
+    with self.global_lock:
+      self.add_request(deserialized)
+      self.setCoordinatorState(CoordinatorState.votereq)
+
+      # if there is no one in the transaction with me initially
+      # aka all the other n procs are down
+      if len(self.cur_request_set) <= 0:
+        self.coordinator_commit_cur_request()
+      else:
+        voteReq = VoteReq(self.pid, deserialized.serialize())
+
+        crashAfterVoteReq = self.pop_crashVoteReq_request()
+        if crashAfterVoteReq != None:
+          self.broadCastMessage(voteReq, crashAfterVoteReq.sendTopid)
+          self.exit()
+        else:
+          self.broadCastMessage(voteReq)
+
+  def broadCastCommit(self):
+    with self.global_lock:
+      self.coordinator_commit_cur_request()
+      self.setCoordinatorState(CoordinatorState.completed)
+      commitMsg = Decision(self.pid, self.tid, Decide.commit)
+
+      crashPartialCommit = self.pop_crashPartialCommit()
+      if crashPartialCommit is not None:
+        # broadcast commit will add it to the playlist
+        self.broadCastMessage(commitMsg,crashPartialCommit.sendTopid)
+        self.exit()
+      else:
+        # broadcast commit will add it to the playlist
+        self.broadCastMessage(commitMsg)
+
+      commitSerialized = commitMsg.serialize()
+      self.storage.write_dt_log(commitSerialized)
+
+  def broadCastPrecommit(self,sendTopid=None):
+    with self.global_lock:
+      self.setCoordinatorState(CoordinatorState.precommit)
+      precommit = Decision(self.pid, self.tid, Decide.precommit)
+      crashPartialPreCommit = self.pop_crashPartialPrecommit()
+      if crashPartialPreCommit is not None:
+        if sendTopid != None:
+          setToSend = set.intersection(set(crashPartialPreCommit.sendTopid),set(sendTopid))
+
+          # sendTopid is passed in IN THE SPECIAL CASE when i am only sending it to the
+          # uncertain peopl in the termination protocol I need to set my responsesNeeded to
+          # the length of that list
+          self.setResponsesNeeded(len(sendTopid))
+        else:
+          setToSend = crashPartialPreCommit.sendTopid
+
+        self.broadCastMessage(precommit,setToSend)
+        self.exit()
+      else:
+        self.broadCastMessage(precommit)
 
   def commit_cur_request(self):
     with self.global_lock:
@@ -419,6 +501,12 @@ class Server:
       if self.isValid():
           self.setCoordinatorState(CoordinatorState.completed)
           self.commit_cur_request()
+
+          # TODO send an ack to the master client with commit
+          # TODO do we send the response before we crash aka before we send
+          # TODO aka when we commited the request
+          responseAck = ResponseAck(Decide.commit)
+          self.master_thread.send(responseAck.serialize())
 
   def _add_commit_handler(self,request):
     with self.global_lock:
@@ -452,12 +540,11 @@ class Server:
       self.coordinator_state = CoordinatorState.standby
 
   def exit(self):
-    # TODO: is this correct?
-
     with self.global_lock:
+
       for other, conn in self.other_procs.iteritems():
-        conn.shutdown(socket.SHUT_RDWR)
-        conn.close()
+        if conn:
+          conn.close()
 
       self.master_thread.close()
       self.internal_server.close()
@@ -465,5 +552,6 @@ class Server:
 
       self.isValid = False
 
-    raise Exception("Commiting Seppuku")
+    os.system('kill %d' % os.getpid())
+
 

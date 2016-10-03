@@ -1,6 +1,9 @@
 from constants import *
 from threading import Thread
 from messages import VoteReq
+import socket
+from socket import SOCK_STREAM, AF_INET
+
 from request_messages import Add, Delete, Get
 from crash_request_messages import CrashRequest, VoteNoRequest, CrashAfterVoteRequest, CrashAfterAckRequest, \
   CrashVoteRequest, CrashPartialCommit, CrashPartialPrecommit, deserialize_client_request
@@ -37,6 +40,10 @@ class MasterClientHandler(Thread):
     """
     while self.isValid():
       data = self.master_conn.recv(BUFFER_SIZE)
+
+      if len(data) <= 0:
+        return
+
       self.server.storage.write_debug("Received from master client:" + data)
       deserialized = deserialize_client_request(data, self.server.getTid())
       self.handlers[deserialized.type](deserialized, self.server)
@@ -63,14 +70,7 @@ class MasterClientHandler(Thread):
     :param deserialized: deserialized Message
     :param server: an instance of the COORDINATOR
     """
-    with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-
-      # Compose VOTE-REQ, log, and send to all participants
-      voteReq = VoteReq(server.pid, server.getTid(), deserialized.serialize())
-      server.storage.write_dt_log(voteReq.serialize())
-      server.broadCastMessage(voteReq)
+    self._transaction_handler(deserialized,server)
 
   def _delete_handler(self, deserialized, server):
     """
@@ -78,24 +78,11 @@ class MasterClientHandler(Thread):
     :param deserialized: deserialized Message
     :param server: an instance of the COORDINATOR
     """
-    with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-      voteReq = VoteReq(server.pid, server.getTid(), deserialized.serialize())
-      server.broadCastMessage(voteReq)
+    self._transaction_handler(deserialized,server)
 
   def _transaction_handler(self, deserialized, server):
     with server.global_lock:
-      server.add_request(deserialized)
-      server.setCoordinatorState(CoordinatorState.votereq)
-      voteReq = VoteReq(server.pid, deserialized.serialize())
-
-      crashAfterVoteReq = server.pop_crashVoteReq_request()
-      if crashAfterVoteReq != None:
-        server.broadCastMessage(voteReq, crashAfterVoteReq.sendTopid)
-        server.exit()
-      else:
-        server.broadCastMessage(voteReq)
+      server.broadCastVoteReq(deserialized)
 
   def send(self, s):
     """
@@ -106,37 +93,45 @@ class MasterClientHandler(Thread):
       self.master_conn.send(str(s))
 
   def close(self):
-    try:
-      self.valid = False
-      self.master_conn.shutdown(socket.SHUT_RDWR)
-      self.master_conn.close()
-    except socket.error, e:
-      self.server.storage.write_debug(str(e) + "\n[^] Socket error")
+    with self.server.global_lock:
+      try:
+        self.valid = False
+        self.master_conn.shutdown(socket.SHUT_RDWR)
+        self.master_conn.close()
+      except socket.error, e:
+        self.server.storage.write_debug(str(e) + "\n[^] Master client Socket error while closing")
 
   def _crash_handler(self, deserialized, server):
-    print("we made it crash")
-    self.server.add_crash_request(deserialized)
+    with self.server.global_lock:
+      print("we made it crash")
+      self.server.exit()
 
   def _voteNo_handler(self, deserialized, server):
-    print("we made it vote no")
-    self.server.add_voteNo_request(deserialized)
+    with self.server.global_lock:
+      print("we made it vote no")
+      self.server.add_voteNo_request(deserialized)
 
   def _crashAfterVote_handler(self, deserialized, server):
-    print("we made it crash after vote")
-    self.server.add_crashAfterVote_request(deserialized)
+    with self.server.global_lock:
+      print("we made it crash after vote")
+      self.server.add_crashAfterVote_request(deserialized)
 
   def _crashAfterAck_handler(self, deserialized, server):
-    print("we made it crash after ack")
-    self.server.add_crashAfterAck_request(deserialized)
+    with self.server.global_lock:
+      print("we made it crash after ack")
+      self.server.add_crashAfterAck_request(deserialized)
 
   def _crashVoteRequest_handler(self, deserialized, server):
-    print("we made it crash vote req")
-    self.server.add_crashVoteReq_request(deserialized)
+    with self.server.global_lock:
+      print("we made it crash vote req")
+      self.server.add_crashVoteReq_request(deserialized)
 
   def _crashPartialPrecommit_handler(self, deserialized, server):
-    print("we made it crash partial precommit")
-    self.server.add_crashPartialPrecommit(deserialized)
+    with self.server.global_lock:
+      print("we made it crash partial precommit")
+      self.server.add_crashPartialPrecommit(deserialized)
 
   def _crashPartialCommit_handler(self, deserialized, server):
-    print("we made it crash partial commit")
-    self.server.add_crashPartialCommit(deserialized)
+    with self.server.global_lock:
+      print("we made it crash partial commit")
+      self.server.add_crashPartialCommit(deserialized)

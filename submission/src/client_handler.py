@@ -3,14 +3,10 @@ import socket
 from socket import SOCK_STREAM, AF_INET
 from threading import Thread
 
-from messages import VoteReq, PreCommit, Decision, Identifier, Vote, Ack, Reelect, StateReqResponse
+from messages import VoteReq, PreCommit, Decision, Identifier, Vote, Ack, Reelect, StateReq, StateReqResponse
 from messages import deserialize_message
 
 from crash_request_messages import deserialize_client_request
-
-from response_messages import ResponseAck
-
-import pdb
 
 class ClientConnectionHandler(Thread):
   """
@@ -30,11 +26,9 @@ class ClientConnectionHandler(Thread):
       VoteReq.msg_type: self._voteReqHandler,
       PreCommit.msg_type: self._preCommitHandler,
       Decision.msg_type: self._decisionHandler,
-      #### These are for the special features ####
-      # Recover.msg_type: Recover,
-      # Reelect.msg_type: Reelect,
-      # StateReq.msg_type: StateReq,
-      # StateRepid.msg_type: StateRepid
+      Reelect.msg_type: self._reelectHandler,
+      StateReq.msg_type: self._stateReqHandler,
+      StateReqResponse.msg_type: self._stateReqResponseHandler,
     }
 
     self.coordinator_handlers = {
@@ -63,7 +57,6 @@ class ClientConnectionHandler(Thread):
   def fromConnection(cls, conn, server):
     result = cls()
     result.conn = conn
-    result.conn.settimeout(TIMEOUT_SECS)
     result.valid = True
     result.server = server
     return result
@@ -73,7 +66,6 @@ class ClientConnectionHandler(Thread):
     result = cls()
     result.conn = socket.socket(AF_INET, SOCK_STREAM)
     result.conn.connect((address, port))
-    result.conn.settimeout(TIMEOUT_SECS)
     result.valid = True
     result.server = server
     return result
@@ -100,11 +92,13 @@ class ClientConnectionHandler(Thread):
     self.send(id_msg.serialize())
 
     try:
-      while self.valid:
+      while self.isValid():
         data = self.conn.recv(BUFFER_SIZE)
 
         if len(data) <= 0:
-          raise Exception("Got EOF from socket")
+          self.server.storage.write_debug("Got EOF from socket {}".format(self.getClientPid()))
+          self.close(True)
+          return
 
         self.server.storage.write_debug("Received:{}, length:{}".format(data, len(data)))
 
@@ -119,13 +113,9 @@ class ClientConnectionHandler(Thread):
 
     # catching all exceptions more than just timeout
     # TODO: figure out what the actual exceptions are
-    except Exception, e:
+    except (socket.timeout, socket.error) as e:
       self.server.storage.write_debug(str(e) + "[^] Timeout error or Socket Closed")
-
-      self.valid = False
-      self.server.other_procs[self.getClientPid()] = None
-      self.server.remove_from_cur_transaction(self.getClientPid())
-      self.conn.close()
+      self.close()
 
       if self.server.isLeader():
         self._coordinator_timeout_handler()
@@ -164,10 +154,12 @@ class ClientConnectionHandler(Thread):
 
 
   def _preCommit_timeout(self):
+    print "precommit_timeout"
     self._send_election()
 
 
   def _commit_timeout(self):
+    print "commit_timeout"
     self._send_election()
 
 
@@ -177,8 +169,17 @@ class ClientConnectionHandler(Thread):
       self._set_next_leader()
 
       if self.server.isLeader():
-        # send out the stateReq to everybody that's in the cur_request_set
-        self.server.broadCastStateReq()
+        if len(self.server.cur_request_set) == 0:
+          # if there's literally nobody alive and I just run termination protocol
+          # with my own state aka if i was uncertain i abort if im precommit i commit
+          # because basically condition 4 is send precommit to everyone else
+          # then commit however committing to myself is just commit
+          self._terminationGather()
+        else:
+          # send out the stateReq to everybody that's in the cur_request_set
+          self.server.broadCastStateReq()
+
+
 
       else:
         electMsg = Reelect(self.server.pid,self.server.getAtomicLeader())
@@ -191,11 +192,11 @@ class ClientConnectionHandler(Thread):
     of the previous leader.
     """
     with self.server.global_lock:
-      n  = len(self.server.other_procs)
-
-      for i in xrange(n):
+      print "set_next_leader"
+      for i in xrange(self.server.n):
+        print i
         cur_leader = self.server.getAtomicLeader()+i
-        cur_leader_index = cur_leader % n
+        cur_leader_index = cur_leader % self.server.n
 
         # skipping processes that aren't in the current transaction anymore
         if not self.server.is_in_cur_transaction(cur_leader_index):
@@ -253,12 +254,17 @@ class ClientConnectionHandler(Thread):
       # if so, updates the leader
       self.server.setAtomicLeader(msg.atomic_leader)
 
+      if self.server.getLeader() == self.getClientPid():
 
-  # Participant recieved messages votereq, precommit, decision #
+        # only set timeout with connections to the leader
+        # otherwise just have the EOF be caught with internal connection with other participants
+        self.conn.settimeout(TIMEOUT_SECS)
+
+
+  # Participant recieved messages votereq
   def _voteReqHandler(self, msg):
     with self.server.global_lock:
       if self.server.getState() == State.aborted or self.server.getState() == State.committed:
-
         # in the recovery mode you would check the response id (rid)
         # of the voteReq and also update your state to become consistent
 
@@ -324,20 +330,12 @@ class ClientConnectionHandler(Thread):
     with self.server.global_lock:
       if self.server.getCoordinatorState() == CoordinatorState.votereq:
         if msg.choice == Choice.no:
-          self.client_state = State.aborted
+          self.server.broadCastAbort()
         else:
           self.client_state = State.uncertain
           self.server.decrementResponsesNeeded()
           if self.server.hasAllResponsesNeeded():
-            self.server.setCoordinatorState(CoordinatorState.precommit)
-            precommit = PreCommit(self.server.pid, self.server.getTid())
-
-            crashPartialPreCommit = self.server.pop_crashPartialPrecommit()
-            if crashPartialPreCommit is not None:
-              self.server.broadCastMessage(precommit, self.server.crashPartialPrecommit.sendTopid)
-              self.server.exit()
-            else:
-              self.server.broadCastMessage(precommit)
+            self.server.broadCastPrecommit()
 
 
   def _ackHandler(self, msg):
@@ -348,28 +346,7 @@ class ClientConnectionHandler(Thread):
         self.client_state = State.committable
 
         if self.server.hasAllResponsesNeeded():
-          d = Decide.commit
-          decision = Decision(self.server.pid, self.server.getTid(), d)
-
-          self._decisionHandler(decision)
-
-          crashPartialCommit = self.server.pop_crashPartialCommit()
-
-          if crashPartialCommit is not None:
-            self.server.broadCastMessage(decision, crashPartialCommit.sendTopid)
-            self.server.exit()
-          else:
-            self.server.broadCastMessage(decision)
-
-            respAck = ResponseAck(d)
-            self.server.master_thread.send(respAck.serialize())
-
-            # TODO check if crash partial commit
-            # do we send the ack to the master before or after
-            # sending the partial broadcast. that is if there is
-            # a partial broadcast do we notify the master only if
-            # commit have been sent to everyone
-
+          self.server.broadCastCommit()
 
   def _stateReqHandler(self, msg):
     with self.server.global_lock:
@@ -400,46 +377,65 @@ class ClientConnectionHandler(Thread):
   def _terminationGather(self):
     with self.server.global_lock:
 
+      allStates = [self.server.getState()]
+
       # first case is check for aborts
       for client_proc in self.server.cur_request_set:
-        if client_proc.getClientState() == State.aborted:
+        allStates.append(client_proc.getClientState())
+
+      for tpState in allStates:
+        if tpState == State.aborted:
           self.server.broadCastAbort()
           return
 
       # second case is check for commit
-      for client_proc in self.server.cur_request_set:
-        if client_proc.getClientState() == State.committed:
-          commitMsg = Decision(self.server.pid,self.server.tid,Decide.commit)
-          self.server.broadCastMessage(commitMsg)
-          self.server.setCoordinatorState(CoordinatorState.completed)
-
-          self.server.commit_cur_request()
+      for tpState in allStates:
+        if tpState == State.committed:
+          self.server.broadCastCommit()
           return
 
       # 3rd case is check for all undecided
-      num_uncertain = len(self.server.cur_request_set)
-      for client_proc in self.server.cur_request_set:
-        if client_proc.getClientState() == State.uncertain:
+      num_uncertain = len(allStates)
+      for tpState in allStates:
+        if tpState == State.uncertain:
           num_uncertain-=1
 
       if num_uncertain == 0:
         self.server.broadCastAbort()
         return
 
-      isCommitable = False
-      sendToPids = []
       # 4th case commitable
-      for client_proc in self.server.cur_request_set:
-        if client_proc.getClientState() == State.committable:
+      isCommitable = False
+      for tpState in allStates:
+        if tpState == State.committable:
           isCommitable = True
-          continue
-        if client_proc.getClientState() == State.uncertain:
-          sendToPids.append(client_proc.getClientPid())
+          break
 
+      # I myself am always commitable at this phase of checking
+      # of the termination protocol
       if isCommitable:
-        precommit = Decision(self.server.pid, self.server.tid, Decide.precommit)
-        self.server.setCoordinatorState(CoordinatorState.precommit)
-        self.server.broadCastMessage(precommit, sendToPids)
+        sendTopid = []
+        for client_proc in self.server.cur_request_set:
+          if client_proc.getClientState() == State.uncertain:
+            sendTopid.append(client_proc)
+
+        # then I am the only one left so i can unilaterally commit
+        if len(self.server.cur_request_set) == 0:
+          self.server.coordinator_commit_cur_request()
+
+        # There is > 0 other processes in the current transacaction
+        # however they are all committable and now you are as well
+        elif len(sendTopid) == 0:
+          self.server.broadCastCommit()
+
+        # we broadcast a precommit to UNCERTAIN PEOPLE setting num responses
+        # needed to the number of uncertain recepients
+        else:
+          # will set you from if YOU were uncertain -> commitable
+          self.server.broadCastPrecommit(sendTopid)
+      else:
+        print("not supposed to be here")
+
 
 
   def send(self, s):
@@ -448,12 +444,17 @@ class ClientConnectionHandler(Thread):
         self.conn.send(str(s))
 
 
-  def close(self):
-    try:
-      self.valid = False
+  def close(self,isClosed=False):
+    with self.server.global_lock:
+      if self.isValid():
+        try:
+          # update global data structures
+          self.server.remove_from_cur_transaction(self.getClientPid())
 
-      # close the connection socket
-        self.conn.shutdown(socket.SHUT_RDWR)
-      self.conn.close()
-    except socket.error, e:
-      self.server.storage.write_debug(str(e) + "\n[^] Socket error")
+          # close the connection socket and send EOF
+          self.valid = False
+          if not isClosed:
+            self.conn.shutdown(socket.SHUT_RDWR)
+            self.conn.close()
+        except socket.error, e:
+          self.server.storage.write_debug(str(e) + "\n[^] Client Socket error while closing")
