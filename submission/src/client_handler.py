@@ -49,7 +49,6 @@ class ClientConnectionHandler(Thread):
       State.aborted: self._voteReq_timeout,
       State.uncertain: self._preCommit_timeout,
       State.committable: self._commit_timeout,
-      State.blazed: self._blazed_timeout
     }
 
     self.coord_failureHandler = {
@@ -105,7 +104,9 @@ class ClientConnectionHandler(Thread):
     id_msg = Identifier(self.server.pid,
                         self.server.getTid(),
                         self.server.isLeader(),
-                        self.server.getState())
+                        self.server.getState(),
+                        self.server.get_last_alive_set(),
+                        self.server.is_recovering)
     self.send(id_msg.serialize())
 
     try:
@@ -177,9 +178,6 @@ class ClientConnectionHandler(Thread):
   def _commit_timeout(self):
     pass
 
-  def _blazed_timeout(self):
-
-    self
 
   """ Coordinator timeout handlers """
 
@@ -229,10 +227,49 @@ class ClientConnectionHandler(Thread):
     self.participant_handlers[msg.type](msg)
 
   def _idHandler(self, msg):
+    """
+    Handles reception of an Identifier message on a process level.
+
+    This handler deals with processes in two different states.
+
+    The process could be regrouping after it has just recovered
+    from failing, in which case it needs to see if other processes
+    exist that are undergoing a transaction.  If there are, it no
+    longer is recovering and "waits" until the next round of VOTE-
+    REQ.  It may attempt to arrange a full-system recovery (re-election)
+    if it finds the last process that failed on a full system failure.
+
+    Otherwise, the process is coming alive and establishing a socket +
+    a record of the process that is alive and working.
+
+    :param msg: Identifier message
+    """
+
     with self.server.global_lock:
+      # Necessary for all ID-ing message calls
       self.server.other_procs[msg.pid] = self
       self.connection_pid = msg.pid
       self.connection_tid = msg.tid
+
+      # If we're a recovering server
+      if self.server.get_is_recovering and \
+      self.server.getState() == State.uncertain:
+
+        # This is how we track processes we know about
+        self.server.cur_request_set.add(msg.pid)
+
+        # Reset this server's intersection to be an intersection
+        # of its current intersection and the other process' last_alive_set
+        self.server.intersection = \
+          set.intersection(self.server.intersection, msg.last_alive_set)
+
+        # R is a superset of the intersection of all the last_alive_sets of the
+        # recovered processes
+        if self.server.intersection.issubset(self.server.cur_request_set):
+          self.server.set_is_recovering(False) # We're no longer recovering
+          # TODO: Initiate server re-election
+          pass # Initiate server re-election
+
 
   # Participant recieved messages votereq, precommit, decision #
   def _voteReqHandler(self, msg):
@@ -257,7 +294,7 @@ class ClientConnectionHandler(Thread):
         # TODO change this if we keep track of the leader to
         # check if current leader == his own pid in a helper function
         # is leader
-        if afterVoteCrash != None and not self.server.isLeader():
+        if afterVoteCrash is not None and not self.server.isLeader():
           self.server.exit()
 
   def _preCommitHandler(self, msg):

@@ -35,9 +35,13 @@ class Storage:
     txn = open(self.transactions, 'a'); txn.close()
     alive = open(self.alive_set, 'a'); alive.close()
 
-  # Get data from a file + return the appropriate 
-  # dictionary holding mappings (<songName: URL>) 
-  def get_disk(self): 
+
+  def get_disk(self):
+    """
+    Get data from a file + return the appropriate dictionary
+    holding mappings (<songName: URL>)
+    :return: A dictionary with <songName: URL> key:value pairs
+    """
     data = {} 
     with open(self.disk, 'r')  as f:
       for line in [line.rstrip('\n') for line in f]: 
@@ -46,33 +50,61 @@ class Storage:
     f.close() 
     return data
 
-  # Get the listing of transactions
-  # (Add or Delete Message objects)
+
   def get_transcations(self):
+    """
+    Get the listing of transactions
+    :return: List of Add or Delete objects
+    """
     with open(self.transactions, 'r') as f:
       result = [client_req_from_log(line) \
                 for line in [line.rstrip('\n') for line in f]]
     return result 
 
-  # Get an array of log messages from log file
-  def get_dt_log(self): 
+
+  def get_dt_log(self):
+    """
+    Get an array of log messages from log file
+    :return: List of String log message (each of the format `tid,log_value`)
+    """
     with open(self.dt_log, 'r') as f: 
       result = [line for line in [line.rstrip('\n') for line in f]]
-    f.close() 
     return result
 
-  # Get an the last known processes pids (e.g. [1, 2, 3], [] if nothing in the file)
+
+  def get_last_dt_entry(self):
+    """
+    Gets the last (most important) entry of the DT Log
+    :return: A String (`tid,log_value`)
+    """
+    result = self.get_dt_log()
+    return result[len(result)-1]
+
+
   def get_alive_set(self):
+    """
+    Get the last known alive processes' PIDs
+    :return: List of PIDs (e.g. [1, 2, 3], [] if nothing in the file)
+    """
     with open(self.alive_set, 'r') as f:
-      result = [] if len(f.readlines()) == 0 else str(f.readlines()[0].split(';'))
+      result = [] if len(f.readlines()) == 0 else [int(p) for p in f.readlines()[0].split(';')]
     return result
 
-  # Check to see if a
+
   def has_dt_log(self):
+    """
+    Indicates whether there exists a non-blank DT Log
+    :return: Boolean.. False if DT Log is an empty file, True otherwise
+    """
     return len(self.get_dt_log()) != 0
 
-  # Add a song as necessary to disk space 
+
   def add_song(self, song_name, song_url):
+    """
+    Add a song as necessary to disk space
+    :param song_name: A song name (String)
+    :param song_url: A song URL (String)
+    """
     # Read in the lines of the file
     f = open(self.disk,"r")
     lines = f.readlines()
@@ -89,8 +121,12 @@ class Storage:
       if not song_in_file:
         f.write(song_name + ',' + song_url)
 
-  # Remove a song as necessary from disk space
+
   def delete_song(self, song_name):
+    """
+    Remove a song as necessary from disk space
+    :param song_name: A song name (String)
+    """
     # Read in lines of the file
     f = open(self.disk,"r")
     lines = f.readlines()
@@ -100,21 +136,29 @@ class Storage:
         if line.split(",")[0] != song_name:
           f.write(line)
 
-  # Update the alive set (stored in file)
+
   def update_alive_set(self, alive_set):
+    """
+    Update the alive set (stored in file)
+    :param alive_set: List of PIDs
+    """
     serialized_alive_set = ';'.join([str(s) for s in alive_set])
     with open(self.alive_set, 'w') as f:
       f.write(serialized_alive_set)
 
-  # Used in all methods below (b/c just tacking on lines
-  # to logs as such
+
   @staticmethod
   def _append_to_file(file_name, a_log):
     with open(file_name, 'a') as f:
       f.write(a_log + "\n")
 
-  # Write a DT log 
+
   def write_dt_log(self, msg):
+    """
+    Log appropriate value `tid,val` to the DT Log
+    :param msg: A Decision, Vote, or VoteReq
+    :return:
+    """
     if isinstance(msg, Decision):
       Storage._append_to_file(self.dt_log, str(msg.tid) + ','
         + msg.decision.name)
@@ -130,10 +174,18 @@ class Storage:
       raise Exception("You passed in an invalid message. " +
       "\nThis can't be logged.")
 
-  # Write debug message to file 
+
   def write_debug(self, debug_log):
+    """
+    Write debug message to file
+    :param debug_log: A String
+    """
     Storage._append_to_file(self.debug, debug_log)
 
-  # Write a transaction to the log
+
   def write_transaction(self, txn):
-    Storage._append_to_file(self.transactions, txn)
+    """
+    Write a transaction to the log
+    :param txn: A Request object
+    """
+    Storage._append_to_file(self.transactions, txn.serialize())

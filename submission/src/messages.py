@@ -73,22 +73,6 @@ class PreCommit(Message):
     return json.dumps(undumped)
 
 
-# Recover 
-class Recover(Message): 
-  msg_type = 4 
-
-  def __init__(self, pid, tid):
-    super(Recover, self).__init__(pid, tid, Recover.msg_type)
-
-  @classmethod 
-  def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'])
-
-  def serialize(self): 
-    undumped = super(Recover, self).serialize()
-    return json.dumps(undumped)
-
-
 # Reelect 
 class Reelect(Message): 
   msg_type = 5 
@@ -184,23 +168,45 @@ class Ack(Message):
 
 # Identifying at the beginning of connecting to hosts
 class Identifier(Message):
+  """
+  Initial message sent to a procedure on creation of a socket.
+  Fields:
+
+  - pid: Process ID (PID) of the sending process
+  - tid: Transaction ID that the sending process is on
+  - is_leader: Boolean indicating if the sending process is the leader
+  - state: State of the sending process
+  - last_alive_set: The list of PID's that were last alive (used for recovery)
+  - is_recovering: Boolean indicating if the sending process is recovering
+  """
+
   msg_type = 10
 
-  def __init__(self, pid, tid, is_leader, state):
+  def __init__(self, pid, tid, is_leader, state, last_alive_set, is_recovering):
+
     super(Identifier, self).__init__(pid, tid, Identifier.msg_type)
     self.is_leader = is_leader
     self.state = state
+    self.last_alive_set = last_alive_set
+    self.is_recovering = is_recovering
 
   @classmethod
   def from_json(cls, my_json):
-    return cls(my_json['pid'], my_json['tid'],
-               my_json['is_leader'], my_json['state'])
+    return cls(my_json['pid'],
+               my_json['tid'],
+               my_json['is_leader'],
+               State[my_json['state']],
+               [int(s) for s in my_json['last_alive_set'].split(';')],
+               my_json['is_recovering'])
 
   def serialize(self):
     myJSON = super(Identifier, self).serialize()
     myJSON['is_leader'] = self.is_leader
     myJSON['state'] = self.state.name
+    myJSON['last_alive_set'] = ';'.join([str(s) for s in self.last_alive_set])
+    myJSON['is_recovering'] = self.is_recovering
     return json.dumps(myJSON)
+
 
 # Constructors to be called in deserialize on a per-
 # msg_type basis 
@@ -209,8 +215,7 @@ MSG_CONSTRUCTORS = {
   Vote.msg_type: Vote, 
   PreCommit.msg_type: PreCommit, 
   Ack.msg_type: Ack,
-  Decision.msg_type: Decision, 
-  Recover.msg_type: Recover, 
+  Decision.msg_type: Decision,
   Reelect.msg_type: Reelect,
   StateReq.msg_type: StateReq,
   StateReqResponse.msg_type: StateReqResponse,

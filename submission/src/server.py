@@ -35,6 +35,10 @@ class Server:
   - other_procs: update other procs to be a mapping from pid -> thread
   - tid: the current transaction id this server is working on
   - cur_request_set: threads currently active on the transaction that is occurring
+  - is_recovering: boolean indicating if this process is recovering
+
+
+  *** Command Queues ***
   - request_queue: a queue of requests to process
   - crash_queue: a queue of `crash` commands for this process
   - voteNo_queue: a queue of `vote NO` commands for this process
@@ -47,9 +51,12 @@ class Server:
   - crashPartialCommit_queue: a queue of `crashPartialCommit` for this process (involves
          failing after sending to a certain # of processes)
 
-  *** In Memory Logging -- Backed Up In Stable Storage ***
+  *** In Memory Logging -- Backed Up In Stable Storage***
   - transaction_history: list of previous, successful transactions (Adds + Deletes)
   - last_alive_set: set of PIDs, indicating the set of processes that were last alive
+
+  - intersection: FOR USE IN RECOVERY.. the current, logged intersection of PIDs
+         of last alive processes
 
   - master_server: reference to master server
   - master_thread: reference to the thread dealing with the open socket with the master
@@ -79,6 +86,7 @@ class Server:
     self.other_procs = dict()
     self.tid = 0
     self.cur_request_set = set()
+    self.is_recovering = False
 
     # Various queues for tracking requests + crash messages
     self.request_queue = deque()
@@ -93,6 +101,9 @@ class Server:
     # Stable storage, in-memory
     self.transaction_history = self.storage.get_transcations()
     self.last_alive_set = set(self.storage.get_alive_set())
+
+    # For recovery
+    self.intersection = self.last_alive_set.copy()
 
     # Setup master server / thread fields
     self.master_server, self.master_thread = \
@@ -161,6 +172,13 @@ class Server:
     with self.global_lock:
       return self.state
 
+  def get_last_alive_set(self):
+    return self.last_alive_set
+
+  def set_is_recovering(self, b):
+    self.is_recovering = b
+
+
   def setCoordinatorState(self,newCoordState):
     with self.global_lock:
       if self.isValid():
@@ -205,13 +223,22 @@ class Server:
   def get_transaction_history(self):
     return self.transaction_history
 
-  # Atomically log a transaction to both stable storage and
-  # in-memory datastore
   def log_transaction(self, request):
+    """
+    Atomically log a transaction to both stable storage and
+    in-memory datastore
+    :param request:
+    """
     self.storage.write_transaction(request)
     self.transaction_history.append(request)
 
   def add_request(self, request):
+    """
+    Add a request [type Request] to the request queue.
+    We must keep track of these for later in case the process
+    represented by this server commits later.
+    :param request: Request object (Add, Delete, Get)
+    """
     with self.global_lock:
       if self.isValid():
         self.request_queue.append(request)
@@ -354,69 +381,98 @@ class Server:
     return master_server, master_thread
 
 
-  def _add_commit_handler(self, request):
+  def _add_commit_handler(self, add_req):
+    """
+    Handles adding a song.  Logs the transaction in stable storage,
+    adds the song to the DB, and adds the song to the in-memory
+    dictionary.
+    :param add_req: Add request
+    """
+
     with self.global_lock:
       if self.isValid():
-        song_name, url = request.song_name, request.url
+        song_name, url = add_req.song_name, add_req.url
         # Stable storage
         self.storage.add_song(song_name, url)
-        self.log_transaction(request)
+        self.log_transaction(add_req)
         # Local change
         self.playlist[song_name] = url
 
 
-  def _delete_commit_handler(self, request):
+  def _delete_commit_handler(self, delete_req):
+    """
+    Handles the deletion of a song.  Logs the transaction in stable
+    storage, deletes the song from the DB, and removes the song from
+    the in-memory dictionary.
+    :param delete_req: Delete request
+    """
+
     with self.global_lock:
       if self.isValid():
-        song_name = request.song_name
+        song_name = delete_req.song_name
         # Stable storage
         self.storage.delete_song(song_name)
-        self.log_transaction(request)
+        self.log_transaction(delete_req)
         # Local change
         del self.playlist[song_name]
 
 
   def _connect_with_peers(self, n):
-    # Use port 20000 + i for each process' server socket, where is the
-    # considered process ID (PID).  Each process will search ports
-    # between 20000 and 20000 + n - 1 to see which process is alive.
-    #
-    # The server is passed into the handler threads because it essentially
-    # acts as the "Global" state.  It is a container and the thread
-    # corresponding to the socket connection registers itself with the
-    # server.
+    """
+    Uses port 20000 as a base, and iterates from 0 to n-1 (inclusive) to
+    to attempt to connect to peer processes.
 
-    pass
+    The server is passed into the handler threads because it essentially
+    acts as the "Global" state.  It is a container and the thread
+    corresponding to the socket connection registers itself with the
+    server.
+
+    :param n: Number of processes involved in the run of the system.
+    :return: The number of sockets that don't exist
+    """
+    no_socket = 0
+    for i in range(n):
+      try:
+        if i != self.pid:
+          # only try to connect to not yourself
+          port_to_connect = START_PORT + i
+          cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
+          cur_handler.start()
+      except:
+        # only connect to the sockets that are active
+        no_socket += 1
+        continue
+
+    return no_socket
 
 
   def _initial_socket_or_recovery_handler(self, n):
+    """
+    If this process is starting up for the first time, connects with peers
+    for the first time.  Else, attempts to initiate recovery procedure.
+    :param n: Number of processes involved in this run of the system.
+    """
     with self.global_lock:
 
       # Initial Socket Connection Coordination
       if not self.storage.has_dt_log():
-        no_socket = 0
-        for i in range(n):
-          try:
-            if i != self.pid:
-              # only try to connect to not yourself
-              port_to_connect = START_PORT + i
-              cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
-              cur_handler.start()
-          except:
-            # only connect to the sockets that are active
-            no_socket += 1
-            continue
+        # Grab the sockets that don't exist
+        no_socket = self._connect_with_peers(n)
         # if you are the first socket to come up, you are the leader
         if no_socket == (n - 1):
           self.leader = self.pid
 
       # If you failed and come back up
       else:
-        self.setState(State.blazed)
-        dt_log = self.storage.get_dt_log()
-        dt_log_arr = dt_log[len(dt_log)-1].split(',')
+        dt_log_arr = self.storage.get_last_dt_entry().split(',')
         tid = int(dt_log_arr[0])
+        self.tid = tid
+        # If the last entry was YES, this process is uncertain and must engage
+        # in seeing how it should recover formally
+        if dt_log_arr[1] == "yes":
+          self.setState(State.uncertain)
+          self.set_is_recovering(True)
 
-
-
+        # Connect with our peers
+        self._connect_with_peers(n)
 
