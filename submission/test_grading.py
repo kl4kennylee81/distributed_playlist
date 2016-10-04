@@ -7,7 +7,7 @@ import shutil
 # os.system('./build')
 
 test_output = 'tests_output'
-tests = 'tests_todo'
+tests = 'tests_passed'
 try:
     shutil.rmtree(test_output)
 except:
