@@ -539,16 +539,18 @@ class Server:
 
 
   def full_recovery_check(self, last_alive_set):
-    # Reset this server's intersection to be an intersection
-    # of its current intersection and the other process' last_alive_set
-    self.intersection = \
-      set.intersection(self.intersection, last_alive_set)
+    with self.global_lock:
+      print "{}. starting full_recovery_check".format(self.pid)
+      # Reset this server's intersection to be an intersection
+      # of its current intersection and the other process' last_alive_set
+      self.intersection = \
+        set.intersection(self.intersection, last_alive_set)
 
-    # R is a superset of the intersection of all the last_alive_sets of the
-    # recovered processes
-    if self.intersection.issubset(self.recovered_set):
-      self.set_is_recovering(False)  # We're no longer recovering
-      self.send_election()
+      # R is a superset of the intersection of all the last_alive_sets of the
+      # recovered processes
+      if self.intersection.issubset(self.recovered_set):
+        self.set_is_recovering(False)  # We're no longer recovering
+        self.send_election()
 
   def send_election(self):
     with self.global_lock:
@@ -794,11 +796,12 @@ class Server:
         elif dt_log_arr[1] == "abort":
           self.setState(State.aborted)
 
+        # Connect with our peers
+        self._connect_with_peers(self.n)
+
         # Check to see if we're the only node and we're safe to recover
         self.full_recovery_check(self.last_alive_set)
 
-        # Connect with our peers
-        self._connect_with_peers(self.n)
 
   def exit(self):
     with self.global_lock:

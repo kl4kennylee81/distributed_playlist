@@ -128,7 +128,6 @@ class ClientConnectionHandler(Thread):
             self.server.storage.write_debug("Got EOF from socket {}".format(self.getClientPid()))
             self._begin_timeout(True)
             return
-          self.server.storage.write_debug("Received:{}, length:{}".format(data, len(data)))
 
           msg = deserialize_message(str(data))
 
@@ -312,8 +311,10 @@ class ClientConnectionHandler(Thread):
   # Participant recieved messages votereq
   def _voteReqHandler(self, msg):
     with self.server.global_lock:
+      print "{}. in the votereq handler with state {}".format(self.server.pid, self.server.getState().name)
       if self.server.getState() == State.aborted \
       or self.server.getState() == State.committed:
+        print "{}. in the votereq handler condition".format(self.server.pid)
         self.server.setState(State.uncertain)
 
         # Brings us up to date
@@ -380,10 +381,12 @@ class ClientConnectionHandler(Thread):
         elif msg.decision == Decide.abort:
           self.server.storage.write_debug("am aborting")
           self.server.storage.write_dt_log(msg)
+          self.server.setState(State.aborted)
       else:
         # if out of the commitable stage there can be a abort message
         if msg.decision == Decide.abort:
-            self.server.storage.write_dt_log(msg)
+          self.server.storage.write_dt_log(msg)
+          self.server.setState(State.aborted)
 
 
   # coordinator received messages vote, acks

@@ -27,7 +27,9 @@ for f in os.listdir(tests):
                     out = fi.read()
             with open(join(tests, fn+'.output')) as fi:
                     std = fi.read()
+
             if out == std:
                 print 'correct'
             else:
                 print 'wrong'
+                print "{} is different from {}".format(out, std)
