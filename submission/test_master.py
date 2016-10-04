@@ -85,6 +85,7 @@ def send(index, data, set_wait_ack=False):
         return
     pid = leader
     while pid not in live_list or live_list[pid] == False:
+        print "kennyS"
         time.sleep(0.01)
         pid = leader
     if set_wait_ack:

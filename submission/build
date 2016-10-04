@@ -1,5 +1,4 @@
 #!/bin/bash
 
 ./clean
-virtualenv venv
-source venv/bin/activate
+sudo pip install enum34

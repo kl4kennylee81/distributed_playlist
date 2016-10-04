@@ -7,6 +7,9 @@ class Request(object):
     self.tid = int(tid)
     self.type = msg_type
 
+  def set_tid(self, tid):
+    self.tid = tid
+
 # Add 
 class Add(Request): 
   msg_type = RequestType.add

@@ -92,14 +92,24 @@ class MasterClientHandler(Thread):
 
   def _transaction_handler(self, deserialized):
     with self.server.global_lock:
+
+      while not self.server.can_execute_full_recovery():
+        self.server.master_waiting_on_recovery.wait()
+
       voteNo = self.server.pop_voteNo_request()
       if voteNo is not None:
         # how are we going to update the tid for this case?
         self.server.broadCastAbort()
         return
 
+      self.server.setCoordinatorState(CoordinatorState.votereq) # -> increments the TID
+      # Set the server state and update the TID
+      # of the request to reflect the fact that it's a transaction
+      deserialized.set_tid(self.server.getTid())
+      # NOW.. add the updated request
       self.server.add_request(deserialized)
-      self.server.setCoordinatorState(CoordinatorState.votereq)
+
+
       # if there is no one in the transaction with me initially
       # aka all the other n procs are down
       print "{}. this is my cur_request_set right now {}".format(self.server.pid, self.server.cur_request_set)

@@ -3,19 +3,20 @@ from constants import *
 import socket
 from socket import SOCK_STREAM, AF_INET
 from collections import deque
-from threading import RLock
+from threading import RLock,Condition
 import sys
 import os
 
 # whitelist import from our files
 from request_messages import Add, Delete
 from response_messages import ResponseAck,ResponseCoordinator,ResponseGet
-from messages import StateReq, Decision, VoteReq, PreCommit
+from messages import StateReq, Decision, PreCommit, Reelect, Identifier
 import storage
 
 from server_handler import ServerConnectionHandler
 from client_handler import ClientConnectionHandler
 from master_client_handler import MasterClientHandler
+
 
 class Server:
   """
@@ -91,7 +92,7 @@ class Server:
 
     self.storage = storage.Storage(self.pid)
     self.responsesNeeded = sys.maxint
-    self.playlist = dict()
+    self.playlist = self.storage.get_disk()
     self.other_procs = dict()
     self.tid = 0
     self.cur_request_set = set()
@@ -109,15 +110,21 @@ class Server:
 
     # Stable storage, in-memory
     self.transaction_history = self.storage.get_transcations()
-    self.last_alive_set = set(self.storage.get_alive_set())
+    # Logic to add yourself to last alive set if this is a fresh set of logs
+    last_alive = set(self.storage.get_alive_set())
+    self.last_alive_set = { self.pid } if len(last_alive) == 0 else last_alive
 
     # For recovery
     self.intersection = self.last_alive_set.copy()
-    self.recovered_set = set(); self.recovered_set.add(self.pid)
+    self.recovered_set = { self.pid }
 
     # Setup master server / thread fields
     self.master_server, self.master_thread = \
       self._setup_master_server_and_thread(port)
+
+    # The condition variable that the master thread on reception of a command transaction
+    # while I am recovering will block on this
+    self.master_waiting_on_recovery = Condition(self.global_lock)
 
     # The socket that all other internal processes connect to
     # for this process
@@ -163,6 +170,10 @@ class Server:
         return len(self.responsesNeeded) <= 0
       return False
 
+  def getPid(self):
+    with self.global_lock:
+      return self.pid
+
   def incrementTid(self):
     with self.global_lock:
       self.tid +=1
@@ -170,6 +181,10 @@ class Server:
   def getTid(self):
     with self.global_lock:
       return self.tid
+
+  def setTid(self, tid):
+    with self.global_lock:
+      self.tid = tid
 
   def setAtomicLeader(self, new_leader):
     """ Test and set for making sure the new leader is actually bigger than
@@ -179,7 +194,7 @@ class Server:
         old = self.getAtomicLeader()
         oldindex = self.getLeader()
         self.leader = new_leader
-        storage.debug_print("PID: {} set Atomic:{}->{}, Actual: {}->{}".format(self.pid, old, new_leader,oldindex, self.getLeader()))
+        storage.debug_print("PID: {} set Atomic:{}->{} Actual: {}->{}".format(self.pid, old, new_leader,oldindex, self.getLeader()))
 
         # ping master client of new leader
         new_coord = ResponseCoordinator(self.getLeader())
@@ -212,8 +227,21 @@ class Server:
   def get_last_alive_set(self):
     return self.last_alive_set
 
+  def add_to_alive_set(self, pid):
+    self.last_alive_set.add(pid)
+    self.storage.update_alive_set(self.last_alive_set)
+
+  def remove_from_alive_set(self, pid):
+    if pid in self.last_alive_set:
+      self.last_alive_set.remove(pid)
+      self.storage.update_alive_set(self.last_alive_set)
+
   def set_is_recovering(self, b):
     self.is_recovering = b
+
+  def is_in_transaction_history(self, tid):
+    tid_set = set([t.tid for t in self.transaction_history])
+    return tid in tid_set
 
 
   def setCoordinatorState(self,newCoordState):
@@ -250,6 +278,9 @@ class Server:
           if proc is not None:
             newAliveSet.add(proc)
         self.cur_request_set = newAliveSet
+        self.last_alive_set = set([conn.getClientPid() for conn in newAliveSet] + [self.getPid()])
+        self.storage.update_alive_set(self.last_alive_set)
+
 
   def is_in_cur_transaction(self,client_pid):
     if client_pid == self.pid:
@@ -257,7 +288,10 @@ class Server:
 
     active_pids = [client.getClientPid() for client in self.cur_request_set]
 
-    return (client_pid in active_pids)
+    print "{}. active_pids:{}, client_pid:{}".format(self.pid, active_pids, client_pid)
+
+    return client_pid in active_pids
+
 
   def remove_from_cur_transaction(self, client_pid):
     """ removes from the alive set and sets to None. Fails softly for key that doesn't exist """
@@ -300,6 +334,18 @@ class Server:
     """
     self.storage.write_transaction(request)
     self.transaction_history.append(request)
+
+
+  def update_transactions(self, transactions_diff):
+    # Applying the changes as necessary to DB to bring it back up to date
+    # (e.g. if we need to apply several adds and deletes that are packaged
+    # into the VOTE-REQ, we do it here)
+
+    for old_txn in transactions_diff:
+      # Still sends the last transaction even if you're up to date (for those
+      # that died in the previous round) so guard with this
+      if not self.is_in_transaction_history(old_txn.tid):
+        self.commandRequestExecutors[old_txn.type](old_txn)
 
 
   def add_request(self, request):
@@ -427,6 +473,7 @@ class Server:
 
       print "broadcasting abort man"
 
+      # Log the abort
       self.storage.write_dt_log(abortMsg)
       self.broadCastMessage(abortMsg)
 
@@ -449,8 +496,6 @@ class Server:
       else:
         # broadcast commit will add it to the playlist
         self.broadCastMessage(commitMsg)
-
-      self.storage.write_dt_log(commitMsg)
 
   def broadCastPrecommit(self,sendTopid=None):
     with self.global_lock:
@@ -497,6 +542,150 @@ class Server:
         self.setCoordinatorState(CoordinatorState.completed)
 
 
+  def full_recovery_check(self, last_alive_set):
+    if self.can_execute_full_recovery(last_alive_set):
+      self.set_is_recovering(False)  # We're no longer recovering
+      self.send_election()
+
+  def can_execute_full_recovery(self, last_alive_set):
+    # Reset this server's intersection to be an intersection
+    # of its current intersection and the other process' last_alive_set
+    self.intersection = \
+      set.intersection(self.intersection, last_alive_set)
+
+    # R is a superset of the intersection of all the last_alive_sets of the
+    # recovered processes
+    return self.intersection.issubset(self.recovered_set)
+
+  def send_election(self,is_recovered=True):
+    with self.global_lock:
+      # round robin selection of next leader
+      self.setCurRequestProcesses()
+      print "{}. is it getting set or not {}".format(self.pid,
+                                            self.cur_request_set)
+      self._set_next_leader()
+      if is_recovered:
+        if self.isLeader():
+          if len(self.cur_request_set) == 0:
+            # if there's literally nobody alive and I just run termination protocol
+            # with my own state aka if i was uncertain i abort if im precommit i commit
+            # because basically condition 4 is send precommit to everyone else
+            # then commit however committing to myself is just commit
+            self.terminationGather()
+          else:
+            # send out the stateReq to everybody that's in the cur_request_set
+            self.broadCastStateReq()
+
+        else:
+          electMsg = Reelect(self.pid, self.getTid(), self.getAtomicLeader())
+          newLeaderIndex = self.getLeader()
+          self.other_procs[newLeaderIndex].send(electMsg.serialize())
+      else:
+        # if i am not recovered than I still figure out who the leader is then I send
+        # an identifier message that will let them know who the leader is
+        id_msg = Identifier(self.pid,
+                            self.getTid(),
+                            self.getAtomicLeader(),
+                            self.getState(),
+                            self.get_last_alive_set(),
+                            self.is_recovering)
+        self.broadCastMessage(id_msg)
+
+
+  def _set_next_leader(self):
+    """
+    Initiate round robin to select the next leader starting from the pid
+    of the previous leader.
+    """
+    with self.global_lock:
+      active_pids = [proc.getClientPid() for proc in self.cur_request_set]
+
+      for i in xrange(self.n):
+        cur_leader = self.getAtomicLeader()+i
+        cur_leader_index = cur_leader % self.n
+
+        # skipping processes that aren't in the current transaction anymore
+        if not self.is_in_cur_transaction(cur_leader_index):
+          continue
+
+        elif cur_leader_index == self.pid:
+          # need to set the coordinator State since i'm coordinator now to termination
+          self.setCoordinatorState(CoordinatorState.termination)
+          self.setAtomicLeader(cur_leader)
+          return
+
+        elif cur_leader_index in active_pids:
+          self.setAtomicLeader(cur_leader)
+          return
+
+      raise Exception("Server:{}... ".format(self.getPid()))
+
+
+  def terminationGather(self):
+    with self.global_lock:
+
+      allStates = [self.getState()]
+
+      print("{}. calling termination gather {}".format(self.getPid(), self.cur_request_set))
+      # first case is check for aborts
+      for client_proc in self.cur_request_set:
+        allStates.append(client_proc.getClientState())
+
+      for tpState in allStates:
+        if tpState == State.aborted:
+          self.broadCastAbort()
+          return
+
+      # second case is check for commit
+      for tpState in allStates:
+        if tpState == State.committed:
+          print("{}. did we broadcast commit to all".format(self.getPid()))
+          self.broadCastCommit()
+          return
+
+      # 3rd case is check for all undecided
+      num_uncertain = len(allStates)
+      for tpState in allStates:
+        if tpState == State.uncertain:
+          num_uncertain-=1
+
+      if num_uncertain == 0:
+        self.broadCastAbort()
+        return
+
+      # 4th case commitable
+      isCommitable = False
+      for tpState in allStates:
+        if tpState == State.committable:
+          isCommitable = True
+          break
+
+      # I myself am always commitable at this phase of checking
+      # of the termination protocol
+      if isCommitable:
+        sendTopid = set()
+        for client_proc in self.cur_request_set:
+          if client_proc.getClientState() == State.uncertain:
+            sendTopid.add(client_proc)
+
+        # then I am the only one left so i can unilaterally commit
+        if len(self.cur_request_set) == 0:
+          self.coordinator_commit_cur_request()
+
+        # There is > 0 other processes in the current transacaction
+        # however they are all committable and now you are as well
+        elif len(sendTopid) == 0:
+          self.broadCastCommit()
+
+        # we broadcast a precommit to UNCERTAIN PEOPLE setting num responses
+        # needed to the number of uncertain recepients
+        else:
+          # will set you from if YOU were uncertain -> commitable
+          self.broadCastPrecommit(sendTopid)
+      else:
+        print("not supposed to be here")
+
+
   def serialize_transaction_history(self):
     return [t.serialize() for t in self.transaction_history]
 
@@ -534,7 +723,8 @@ class Server:
       if self.isValid():
         song_name, url = add_req.song_name, add_req.url
         print "{}. commiting {} {}".format(self.pid, song_name, url)
-        # Stable storage
+        # LOG: Stable storage
+        self.storage.write_dt_log(add_req)
         self.storage.add_song(song_name, url)
         self.log_transaction(add_req)
         # Local change
@@ -552,7 +742,8 @@ class Server:
     with self.global_lock:
       if self.isValid():
         song_name = delete_req.song_name
-        # Stable storage
+        # LOG: Stable storage
+        self.storage.write_dt_log(delete_req)
         self.storage.delete_song(song_name)
         self.log_transaction(delete_req)
         # Local change
@@ -607,13 +798,26 @@ class Server:
       # If you failed and come back up
       else:
         dt_log_arr = self.storage.get_last_dt_entry().split(',')
-        tid = int(dt_log_arr[0])
-        self.tid = tid
-        # If the last entry was YES, this process is uncertain and must engage
-        # in seeing how it should recover formally
-        if dt_log_arr[1] == "yes":
+        self.setTid(int(dt_log_arr[0]))
+
+        # IF WE HIT THIS, WE ARE ABSOLUTELY 100% RECOVERING
+
+        # Based on the DT Log, set our state
+        self.set_is_recovering(True)
+        if dt_log_arr[1] == "yes" or dt_log_arr[1] == "votereq":
           self.setState(State.uncertain)
-          self.set_is_recovering(True)
+        elif dt_log_arr[1] == "commit":
+          self.setState(State.committed)
+        elif dt_log_arr[1] == "abort":
+          self.setState(State.aborted)
+
+        if not self.can_execute_full_recovery(self.get_last_alive_set()):
+          # I am not recovered but I must elect a coordinator temporarily while I wait
+          # for the intersection to be satisfied
+          self.send_election(False)
+        else:
+          # Check to see if we're the only node and we're safe to recover
+          self.full_recovery_check(self.last_alive_set)
 
         # Connect with our peers
         self._connect_with_peers(self.n)

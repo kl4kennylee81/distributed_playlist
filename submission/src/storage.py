@@ -1,6 +1,7 @@
 # For use in transaction acquisiton
 from messages import client_req_from_log, Decision, Vote, VoteReq
 from constants import Choice
+from request_messages import Add, Delete
 
 DEBUG=True
 
@@ -93,7 +94,8 @@ class Storage:
     :return: List of PIDs (e.g. [1, 2, 3], [] if nothing in the file)
     """
     with open(self.alive_set, 'r') as f:
-      result = [] if len(f.readlines()) == 0 else [int(p) for p in f.readlines()[0].split(';')]
+      lines = f.readlines()
+      result = [] if len(lines) == 0 else [int(p) for p in lines[0].split(';')]
     return result
 
 
@@ -120,12 +122,12 @@ class Storage:
     with open(self.disk, "w") as f:
       for line in lines:
         if line.split(",")[0] == song_name:
-          f.write(song_name + ',' + song_url)
+          f.write(song_name + ',' + song_url + "\n")
           song_in_file = True
         else:
           f.write(line)
       if not song_in_file:
-        f.write(song_name + ',' + song_url)
+        f.write(song_name + ',' + song_url + "\n")
 
 
   def delete_song(self, song_name):
@@ -169,10 +171,14 @@ class Storage:
       Storage._append_to_file(self.dt_log, str(msg.tid) + ','
         + msg.decision.name)
     elif isinstance(msg, Vote):
-      if msg.choice == Choice.yes:
-        Storage._append_to_file(self.dt_log, str(msg.tid) + ','
-        + msg.choice.name)
-      else: raise Exception("You passed in a NO vote")
+      Storage._append_to_file(self.dt_log, str(msg.tid) + ','
+      + msg.choice.name)
+    elif isinstance(msg, Add):
+      Storage._append_to_file(self.dt_log, str(msg.tid) + ','
+      + 'commit,add ' + msg.song_name + ' ' + msg.url)
+    elif isinstance(msg, Delete):
+      Storage._append_to_file(self.dt_log, str(msg.tid) + ','
+      + 'commit,delete ' + msg.song_name)
     elif isinstance(msg, VoteReq):
       Storage._append_to_file(self.dt_log, str(msg.tid) + ','
         + "votereq")
@@ -184,7 +190,7 @@ class Storage:
   def write_debug(self, debug_message):
     """
     Write debug message to file
-    :param debug_log: A String
+    :param debug_message: A String
     """
     debug_message = "PID: {}, LOG: {}".format(self.pid, debug_message)
     debug_print(debug_message)

@@ -95,7 +95,7 @@ class Reelect(Message):
 class VoteReq(Message):
   msg_type = 5
 
-  def __init__(self, pid, tid, request, transactions_diff=None):
+  def __init__(self, pid, tid, request, transactions_diff=list()):
     super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
     self.request = request
     # To contain instances of Add or Delete
@@ -103,7 +103,7 @@ class VoteReq(Message):
 
   @classmethod
   def from_json(cls, my_json):
-    transactions_diff = None if my_json['transactions_diff'] == '' else \
+    transactions_diff = [] if my_json['transactions_diff'] == [] else \
       [client_req_from_log(t) for t in my_json['transactions_diff'].split(';')]
     result = cls(my_json['pid'], my_json['tid'], my_json['request'], transactions_diff)
     return result
@@ -111,7 +111,7 @@ class VoteReq(Message):
   def serialize(self): 
     myJSON = super(VoteReq, self).serialize() 
     myJSON['request'] = self.request
-    myJSON['transactions_diff'] = None if self.transactions_diff is None else \
+    myJSON['transactions_diff'] = [] if len(self.transactions_diff) == 0  else \
       ';'.join([t.serialize() for t in self.transactions_diff])
     return json.dumps(myJSON)
 
@@ -171,6 +171,30 @@ class Ack(Message):
     myJSON = super(Ack, self).serialize() 
     return json.dumps(myJSON)
 
+  # VoteReq
+  class VoteReq(Message):
+    msg_type = 5
+
+    def __init__(self, pid, tid, request, transactions_diff=list()):
+      super(VoteReq, self).__init__(pid, tid, VoteReq.msg_type)
+      self.request = request
+      # To contain instances of Add or Delete
+      self.transactions_diff = transactions_diff
+
+    @classmethod
+    def from_json(cls, my_json):
+      transactions_diff = [] if my_json['transactions_diff'] == [] else \
+        [client_req_from_log(t) for t in my_json['transactions_diff'].split(';')]
+      result = cls(my_json['pid'], my_json['tid'], my_json['request'], transactions_diff)
+      return result
+
+    def serialize(self):
+      myJSON = super(VoteReq, self).serialize()
+      myJSON['request'] = self.request
+      myJSON['transactions_diff'] = [] if len(self.transactions_diff) == 0  else \
+        ';'.join([t.serialize() for t in self.transactions_diff])
+      return json.dumps(myJSON)
+
 
 # Identifying at the beginning of connecting to hosts
 class Identifier(Message):
@@ -213,6 +237,28 @@ class Identifier(Message):
     return json.dumps(myJSON)
 
 
+class Recovery(Message):
+  msg_type = 10
+
+  def __init__(self, pid, tid, transactions_diff=list()):
+    super(Recovery, self).__init__(pid, tid, Recovery.msg_type)
+    # To contain instances of Add or Delete
+    self.transactions_diff = transactions_diff
+
+  @classmethod
+  def from_json(cls, my_json):
+    transactions_diff = [] if my_json['transactions_diff'] == [] else \
+      [client_req_from_log(t) for t in my_json['transactions_diff'].split(';')]
+    result = cls(my_json['pid'], my_json['tid'], transactions_diff)
+    return result
+
+  def serialize(self):
+    myJSON = super(Recovery, self).serialize()
+    myJSON['transactions_diff'] = [] if len(self.transactions_diff) == 0  else \
+      ';'.join([t.serialize() for t in self.transactions_diff])
+    return json.dumps(myJSON)
+
+
 # Constructors to be called in deserialize on a per-
 # msg_type basis 
 MSG_CONSTRUCTORS = { 
@@ -225,6 +271,7 @@ MSG_CONSTRUCTORS = {
   StateReq.msg_type: StateReq,
   StateReqResponse.msg_type: StateReqResponse,
   Identifier.msg_type: Identifier,
+  Recovery.msg_type: Recovery,
 }
 
 # Deserialize (called for internal message passing)
