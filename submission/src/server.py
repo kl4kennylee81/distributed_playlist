@@ -179,7 +179,7 @@ class Server:
         old = self.getAtomicLeader()
         oldindex = self.getLeader()
         self.leader = new_leader
-        print "PID: {} set Atomic:{}->{}, Actual: {}->{}".format(self.pid, old, new_leader,oldindex, self.getLeader())
+        storage.debug_print("PID: {} set Atomic:{}->{}, Actual: {}->{}".format(self.pid, old, new_leader,oldindex, self.getLeader()))
 
         # ping master client of new leader
         new_coord = ResponseCoordinator(self.getLeader())
@@ -256,8 +256,6 @@ class Server:
       return True
 
     active_pids = [client.getClientPid() for client in self.cur_request_set]
-
-    print "{}. active_pids:{}, client_pid:{}".format(self.pid, active_pids, client_pid)
 
     return (client_pid in active_pids)
 
@@ -404,7 +402,6 @@ class Server:
     """
     with self.global_lock:
       if self.isValid():
-        print "{}. THE CUR REQUEST SET IS {}".format(self.pid,self.cur_request_set)
         for proc in self.cur_request_set:
           if sendTopid:
             if proc.getClientPid() in sendTopid:
@@ -417,8 +414,7 @@ class Server:
   def broadCastStateReq(self):
     with self.global_lock:
       self.setCoordinatorState(CoordinatorState.termination)
-      stateReqMsg = StateReq(self.pid, self.getTid())
-      print "{}.broadcasting statereq {}".format(self.pid, stateReqMsg.serialize())
+      stateReqMsg = StateReq(self.pid, self.getTid(), self.getAtomicLeader())
       self.broadCastMessage(stateReqMsg)
       # also need to set the number of stateResponses needed
       # in the alive set of threads we'll keep track of their states
@@ -459,7 +455,6 @@ class Server:
   def broadCastPrecommit(self,sendTopid=None):
     with self.global_lock:
       self.setCoordinatorState(CoordinatorState.precommit)
-      print("\n\n\nwe have set the coordinator state to precommit\n\n\n")
       precommit = PreCommit(self.pid, self.getTid())
       crashPartialPreCommit = self.pop_crashPartialPrecommit()
       if crashPartialPreCommit is not None:
@@ -492,9 +487,7 @@ class Server:
       if self.isValid():
         # TODO get it from the log that i have already committed because for example I get
         # TODO get elected leader and then am calling broadcastCommit again don't want to reexecute
-        print "coordinator_commit_cur_request"
         if self.getState() != State.committed:
-          print "self.getState() != State.committed"
           self.commit_cur_request()
         # TODO send an ack to the master client with commit
         # TODO do we send the response before we crash aka before we send
@@ -609,7 +602,7 @@ class Server:
         no_socket = self._connect_with_peers(self.n)
         # if you are the first socket to come up, you are the leader
         if no_socket == (self.n - 1):
-          self.leader = self.pid
+          self.setAtomicLeader(self.pid)
 
       # If you failed and come back up
       else:
