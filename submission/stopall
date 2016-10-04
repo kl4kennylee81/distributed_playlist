@@ -1,4 +1,4 @@
 #!/bin/bash
 
-killall -9 process
-killall -9 python
+./clean
+ps aux | grep "start_node.py" | awk {'print $2'} | xargs kill

@@ -5,7 +5,6 @@ from os.path import isfile, join
 import shutil
 
 # os.system('./build')
-os.system('./clean')
 
 test_output = 'test_output'
 tests = 'tests/basic'
