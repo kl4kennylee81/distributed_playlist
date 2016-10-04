@@ -279,6 +279,11 @@ class Server:
   def setState(self,newState):
     with self.global_lock:
       if self.isValid():
+        if newState == State.aborted:
+          if self.request_queue:
+            # dequeue the request that we are aborting to avoid repeats
+            aborted_request = self.request_queue.popleft()
+            print "{}. state is now aborted, throwing away {}".format(self.pid, aborted_request)
         self.state = newState
 
   def newParticipant(self, pid, new_thread):
@@ -425,8 +430,8 @@ class Server:
       self.setCoordinatorState(CoordinatorState.standby)
 
       print "broadcasting abort man"
-      self.storage.write_dt_log(abortMsg)
 
+      self.storage.write_dt_log(abortMsg)
       self.broadCastMessage(abortMsg)
 
       # TODO send an ack to the master client with abort
@@ -477,6 +482,7 @@ class Server:
     with self.global_lock:
       if self.isValid():
         current_request = self.request_queue.popleft()
+        print "{}. this is the current request that i am committing {}".format(self.pid, current_request)
         if current_request is not None:
           self.commandRequestExecutors[current_request.msg_type](current_request)
           self.setState(State.committed)
@@ -534,6 +540,7 @@ class Server:
     with self.global_lock:
       if self.isValid():
         song_name, url = add_req.song_name, add_req.url
+        print "{}. commiting {} {}".format(self.pid, song_name, url)
         # Stable storage
         self.storage.add_song(song_name, url)
         self.log_transaction(add_req)

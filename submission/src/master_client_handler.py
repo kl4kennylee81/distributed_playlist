@@ -94,6 +94,7 @@ class MasterClientHandler(Thread):
       self.server.setCoordinatorState(CoordinatorState.votereq)
       # if there is no one in the transaction with me initially
       # aka all the other n procs are down
+      print "{}. this is my cur_request_set right now {}".format(self.server.pid, self.server.cur_request_set)
       if len(self.server.cur_request_set) <= 0:
         self.server.coordinator_commit_cur_request()
       else:

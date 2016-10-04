@@ -102,7 +102,7 @@ def exit():
     time.sleep(2)
     for k in threads:
         threads[k].close()
-    subprocess.Popen(['./stopall'])
+    subprocess.Popen(['./stopall'], stdout=open('/dev/null'), stderr=open('/dev/null'))
     time.sleep(0.1)
     os._exit(0)
 

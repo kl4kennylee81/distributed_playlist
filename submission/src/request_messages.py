@@ -57,7 +57,7 @@ def deserialize_client_command_request(msg_string, tid):
     msg_list = msg_list.split(" ")
 
   msg_list = filter(lambda a: a != '', msg_list)
-
+  print "what in the world"
   print "msg list man", msg_list
 
   if msg_list[0].lower() == "add": 
