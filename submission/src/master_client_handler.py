@@ -92,6 +92,12 @@ class MasterClientHandler(Thread):
 
   def _transaction_handler(self, deserialized):
     with self.server.global_lock:
+      voteNo = self.server.pop_voteNo_request()
+      if voteNo is None:
+        # how are we going to update the tid for this case?
+        self.server.broadCastAbort()
+        return
+
       self.server.add_request(deserialized)
       self.server.setCoordinatorState(CoordinatorState.votereq)
       # if there is no one in the transaction with me initially
