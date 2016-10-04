@@ -3,14 +3,14 @@ from constants import *
 import socket
 from socket import SOCK_STREAM, AF_INET
 from collections import deque
-from threading import RLock,Condition
+from threading import RLock
 import sys
 import os
 
 # whitelist import from our files
 from request_messages import Add, Delete
 from response_messages import ResponseAck,ResponseCoordinator,ResponseGet
-from messages import StateReq, Decision, PreCommit, Reelect, Identifier
+from messages import StateReq, Decision, PreCommit, Reelect
 import storage
 
 from server_handler import ServerConnectionHandler
@@ -121,10 +121,6 @@ class Server:
     # Setup master server / thread fields
     self.master_server, self.master_thread = \
       self._setup_master_server_and_thread(port)
-
-    # The condition variable that the master thread on reception of a command transaction
-    # while I am recovering will block on this
-    self.master_waiting_on_recovery = Condition(self.global_lock)
 
     # The socket that all other internal processes connect to
     # for this process
@@ -395,7 +391,7 @@ class Server:
 
   def pop_voteNo_request(self):
     with self.global_lock:
-      if self.voteNo_queue: 
+      if self.voteNo_queue:
         return self.voteNo_queue.popleft()
       else:
         return None
@@ -409,28 +405,28 @@ class Server:
 
   def pop_crashAfterAck_request(self):
     with self.global_lock:
-      if self.crashAfterAck_queue: 
+      if self.crashAfterAck_queue:
         return self.crashAfterAck_queue.popleft()
       else:
         return None
 
   def pop_crashVoteReq_request(self):
     with self.global_lock:
-      if self.crashVoteReq_queue: 
+      if self.crashVoteReq_queue:
         return self.crashVoteReq_queue.popleft()
       else:
         return None
 
   def pop_crashPartialPrecommit(self):
     with self.global_lock:
-      if self.crashPartialPrecommit_queue: 
+      if self.crashPartialPrecommit_queue:
         return self.crashPartialPrecommit_queue.popleft()
       else:
         return None
 
   def pop_crashPartialCommit(self):
     with self.global_lock:
-      if self.crashPartialCommit_queue: 
+      if self.crashPartialCommit_queue:
         return self.crashPartialCommit_queue.popleft()
       else:
         return None
@@ -542,12 +538,7 @@ class Server:
         self.setCoordinatorState(CoordinatorState.completed)
 
 
-  def full_recovery_check(self, last_alive_set):
-    if self.can_execute_full_recovery(last_alive_set):
-      self.set_is_recovering(False)  # We're no longer recovering
-      self.send_election()
-
-  def can_execute_full_recovery(self, last_alive_set):
+  def full_recovery_check(self, last_alive_set,is_recovered):
     # Reset this server's intersection to be an intersection
     # of its current intersection and the other process' last_alive_set
     self.intersection = \
@@ -555,41 +546,33 @@ class Server:
 
     # R is a superset of the intersection of all the last_alive_sets of the
     # recovered processes
-    return self.intersection.issubset(self.recovered_set)
+    if self.intersection.issubset(self.recovered_set):
+      self.set_is_recovering(False)  # We're no longer recovering
+      self.send_election()
 
-  def send_election(self,is_recovered=True):
+  def send_election(self):
     with self.global_lock:
       # round robin selection of next leader
       self.setCurRequestProcesses()
       print "{}. is it getting set or not {}".format(self.pid,
                                             self.cur_request_set)
       self._set_next_leader()
-      if is_recovered:
-        if self.isLeader():
-          if len(self.cur_request_set) == 0:
-            # if there's literally nobody alive and I just run termination protocol
-            # with my own state aka if i was uncertain i abort if im precommit i commit
-            # because basically condition 4 is send precommit to everyone else
-            # then commit however committing to myself is just commit
-            self.terminationGather()
-          else:
-            # send out the stateReq to everybody that's in the cur_request_set
-            self.broadCastStateReq()
 
+      if self.isLeader():
+        if len(self.cur_request_set) == 0:
+          # if there's literally nobody alive and I just run termination protocol
+          # with my own state aka if i was uncertain i abort if im precommit i commit
+          # because basically condition 4 is send precommit to everyone else
+          # then commit however committing to myself is just commit
+          self.terminationGather()
         else:
-          electMsg = Reelect(self.pid, self.getTid(), self.getAtomicLeader())
-          newLeaderIndex = self.getLeader()
-          self.other_procs[newLeaderIndex].send(electMsg.serialize())
+          # send out the stateReq to everybody that's in the cur_request_set
+          self.broadCastStateReq()
+
       else:
-        # if i am not recovered than I still figure out who the leader is then I send
-        # an identifier message that will let them know who the leader is
-        id_msg = Identifier(self.pid,
-                            self.getTid(),
-                            self.getAtomicLeader(),
-                            self.getState(),
-                            self.get_last_alive_set(),
-                            self.is_recovering)
-        self.broadCastMessage(id_msg)
+        electMsg = Reelect(self.pid, self.getTid(), self.getAtomicLeader())
+        newLeaderIndex = self.getLeader()
+        self.other_procs[newLeaderIndex].send(electMsg.serialize())
 
 
   def _set_next_leader(self):
@@ -811,13 +794,8 @@ class Server:
         elif dt_log_arr[1] == "abort":
           self.setState(State.aborted)
 
-        if not self.can_execute_full_recovery(self.get_last_alive_set()):
-          # I am not recovered but I must elect a coordinator temporarily while I wait
-          # for the intersection to be satisfied
-          self.send_election(False)
-        else:
-          # Check to see if we're the only node and we're safe to recover
-          self.full_recovery_check(self.last_alive_set)
+        # Check to see if we're the only node and we're safe to recover
+        self.full_recovery_check(self.last_alive_set)
 
         # Connect with our peers
         self._connect_with_peers(self.n)

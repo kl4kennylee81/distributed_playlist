@@ -287,18 +287,18 @@ class ClientConnectionHandler(Thread):
         self.send(recovery_msg.serialize())
 
 
-      # If we're both recovering + we're both on the same transaction
+      # If we're both uncertain and we're both recovering and we're on the same transaction
+      # we want to perform intersection / set logic to see if we can recover.
+      # We'll never pre-maturely recover b/c if there are other serers that are up,
+      # we'll never include them in our recovered_set and we'll never try and re-elect...
+      # This
       if self.server.is_recovering and msg.is_recovering and \
       self.getClientTid() == self.server.getTid():
 
         # This is how we track processes we know about
         self.server.recovered_set.add(msg.pid)
 
-        if self.server.can_execute_full_recovery(msg.last_alive_set):
-          self.server.master_waiting_on_recovery.notify()
-
-        # think about this case this was there previously which means we have to carefully consider
-        # what we're doing to not break the old way things were done
+        #
         self.server.full_recovery_check(msg.last_alive_set)
 
 
@@ -430,8 +430,7 @@ class ClientConnectionHandler(Thread):
     """ Ignores any relect message coming in that is lower than the current atomic leader"""
     with self.server.global_lock:
       if self.server.setAtomicLeader(msg.new_atomic_leader):
-        if self.server.isLeader():
-          self.server.broadCastStateReq()
+        self.server.broadCastStateReq()
 
 
   def _stateReqResponseHandler(self, msg):
