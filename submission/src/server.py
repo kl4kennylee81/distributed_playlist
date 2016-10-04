@@ -799,6 +799,7 @@ class Server:
       no_socket = self._connect_with_peers(self.n)
 
       if self.storage.has_dt_log():
+        print "{}. is reading sate from dt log".format(self.pid)
         dt_log_arr = self.storage.get_last_dt_entry().split(',')
         self.setTid(int(dt_log_arr[0]))
 
@@ -818,8 +819,9 @@ class Server:
 
 
       # if you are the first socket to come up, you are the leader
-      print "{}. initializing socket and his state is {} and no_socket is {}".format(self.pid, self.getState().name, no_socket)
       if no_socket == (self.n - 1) and self.isConsistent():
+        print "{}. initializing socket and his state is {} and no_socket is {}".format(self.pid, self.getState().name,
+                                                                                       no_socket)
         self.setAtomicLeader(self.pid)
         self.setCoordinatorState(CoordinatorState.standby)
 
