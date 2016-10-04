@@ -198,10 +198,23 @@ class Storage:
     debug_print(debug_message)
     Storage._append_to_file(self.debug, debug_message)
 
+
   def write_transaction(self, txn):
     """
     Write a transaction to the log
     :param txn: A Request object
     """
     Storage._append_to_file(self.transactions, txn.serialize())
+
+
+  def write_push_crash_message(self, crash_msg):
+    serialized = "push {}".format(crash_msg.serialize())
+    print "logging {} to stable storage".format(serialized)
+    Storage._append_to_file(self.crash_log, serialized)
+
+
+  def write_pop_crash_message(self, crash_msg):
+    serialized = "pop {}".format(crash_msg.serialize())
+    print "logging {} to stable storage".format(serialized)
+    Storage._append_to_file(self.crash_log, serialized)
 

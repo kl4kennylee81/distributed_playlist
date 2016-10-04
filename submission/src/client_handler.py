@@ -351,7 +351,7 @@ class ClientConnectionHandler(Thread):
         # this gets the transaction diff from someone else and updates your logs
         self.server.update_transactions(msg.transactions_diff)
 
-        forcedNo = self.server.pop_voteNo_request()
+        forcedNo = self.server.pop_voteNo_request_with_logging()
 
         if forcedNo is not None:
           choice = Choice.no
@@ -368,7 +368,7 @@ class ClientConnectionHandler(Thread):
         else:
           self.server.setState(State.uncertain)
 
-        afterVoteCrash = self.server.pop_crashAfterVote_request()
+        afterVoteCrash = self.server.pop_crashAfterVote_request_with_logging()
 
         if afterVoteCrash is not None and not self.server.isLeader():
           self.server.exit()
@@ -382,7 +382,7 @@ class ClientConnectionHandler(Thread):
         ackRes = Ack(self.server.pid, self.server.getTid())
         self.send(ackRes.serialize())
 
-        crashAfterAck = self.server.pop_crashAfterAck_request()
+        crashAfterAck = self.server.pop_crashAfterAck_request_with_logging()
         if crashAfterAck is not None and not self.server.isLeader():
           self.server.exit()
 

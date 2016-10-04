@@ -96,7 +96,7 @@ class MasterClientHandler(Thread):
       while not self.server.can_issue_full_recovery(self.server.get_last_alive_set()) and self.server.is_recovering:
         self.server.master_waiting_on_recovery.wait()
 
-      voteNo = self.server.pop_voteNo_request()
+      voteNo = self.server.pop_voteNo_request_with_logging()
       if voteNo is not None:
         # how are we going to update the tid for this case?
         self.server.broadCastAbort()
@@ -124,7 +124,7 @@ class MasterClientHandler(Thread):
         self.server.storage.write_dt_log(voteReq)
 
         # Check crash condition
-        crashAfterVoteReq = self.server.pop_crashVoteReq_request()
+        crashAfterVoteReq = self.server.pop_crashVoteReq_request_with_logging()
         # If we should crash, send to a subset and then crash
         if crashAfterVoteReq is not None:
           self._broadcast_vote_req(request, crashAfterVoteReq.sendTopid)
@@ -178,34 +178,34 @@ class MasterClientHandler(Thread):
   def _voteNo_handler(self, deserialized):
     with self.server.global_lock:
       debug_print("we made it vote no")
-      self.server.add_voteNo_request(deserialized)
+      self.server.add_voteNo_request_with_logging(deserialized)
 
 
   def _crashAfterVote_handler(self, deserialized):
     with self.server.global_lock:
       debug_print("we made it crash after vote")
-      self.server.add_crashAfterVote_request(deserialized)
+      self.server.add_crashAfterVote_request_with_logging(deserialized)
 
 
   def _crashAfterAck_handler(self, deserialized):
     with self.server.global_lock:
       debug_print("we made it crash after ack")
-      self.server.add_crashAfterAck_request(deserialized)
+      self.server.add_crashAfterAck_request_with_logging(deserialized)
 
 
   def _crashVoteRequest_handler(self, deserialized):
     with self.server.global_lock:
       debug_print("we made it crash vote req")
-      self.server.add_crashVoteReq_request(deserialized)
+      self.server.add_crashVoteReq_request_with_logging(deserialized)
 
 
   def _crashPartialPrecommit_handler(self, deserialized):
     with self.server.global_lock:
       debug_print("we made it crash partial precommit")
-      self.server.add_crashPartialPrecommit(deserialized)
+      self.server.add_crashPartialPrecommit_with_logging(deserialized)
 
 
   def _crashPartialCommit_handler(self, deserialized):
     with self.server.global_lock:
       debug_print("we made it crash partial commit")
-      self.server.add_crashPartialCommit(deserialized)
+      self.server.add_crashPartialCommit_with_logging(deserialized)

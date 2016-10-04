@@ -366,79 +366,189 @@ class Server:
 
   def add_crash_request(self,request):
     with self.global_lock:
-      # not sure if we need to queue
-      # up anything since you just fail
-      # automatically maybe a kill signal
-      # is all we need
-      # self.crash_queue.append(request)
-      # TODO: find out about this? doesn't seem like a big deal though
       self.exit()
 
-  def add_voteNo_request(self,request):
+
+  def add_voteNo_request_no_logging(self,request):
     with self.global_lock:
+      print "append {} to crash queue but NO logging".format(request.serialize())
       self.voteNo_queue.append(request)
 
-  def add_crashAfterVote_request(self,request):
+  def add_voteNo_request_with_logging(self,request):
     with self.global_lock:
+      self.voteNo_queue.append(request)
+      self.storage.write_push_crash_message(request)
+
+
+  def add_crashAfterVote_request_no_logging(self,request):
+    with self.global_lock:
+      print "append {} to crash queue but NO logging".format(request.serialize())
       self.crashAfterVote_queue.append(request)
 
-  def add_crashAfterAck_request(self,request):
+  def add_crashAfterVote_request_with_logging(self,request):
     with self.global_lock:
+      self.crashAfterVote_queue.append(request)
+      self.storage.write_push_crash_message(request)
+
+
+  def add_crashAfterAck_request_no_logging(self,request):
+    with self.global_lock:
+      print "append {} to crash queue but NO logging".format(request.serialize())
       self.crashAfterAck_queue.append(request)
 
-  def add_crashVoteReq_request(self,request):
+  def add_crashAfterAck_request_with_logging(self,request):
     with self.global_lock:
+      self.crashAfterAck_queue.append(request)
+      self.storage.write_push_crash_message(request)
+
+
+  def add_crashVoteReq_request_no_logging(self,request):
+    with self.global_lock:
+      print "append {} to crash queue but NO logging".format(request.serialize())
       self.crashVoteReq_queue.append(request)
 
-  def add_crashPartialPrecommit(self,request):
+  def add_crashVoteReq_request_with_logging(self,request):
     with self.global_lock:
+      self.crashVoteReq_queue.append(request)
+      self.storage.write_push_crash_message(request)
+
+
+  def add_crashPartialPrecommit_no_logging(self,request):
+    with self.global_lock:
+      print "append {} to crash queue but NO logging".format(request.serialize())
       self.crashPartialPrecommit_queue.append(request)
 
-  def add_crashPartialCommit(self,request):
+  def add_crashPartialPrecommit_with_logging(self,request):
     with self.global_lock:
+      self.crashPartialPrecommit_queue.append(request)
+      self.storage.write_push_crash_message(request)
+
+
+  def add_crashPartialCommit_no_logging(self,request):
+    with self.global_lock:
+      print "append {} to crash queue but NO logging".format(request.serialize())
       self.crashPartialCommit_queue.append(request)
 
-  def pop_voteNo_request(self):
+  def add_crashPartialCommit_with_logging(self,request):
+    with self.global_lock:
+      self.crashPartialCommit_queue.append(request)
+      self.storage.write_push_crash_message(request)
+
+
+
+  def pop_voteNo_request_no_logging(self):
     with self.global_lock:
       if self.voteNo_queue:
-        return self.voteNo_queue.popleft()
+        crash_msg = self.voteNo_queue.popleft()
+        print "pop {} to crash queue but NO logging".format(crash_msg.serialize())
+        return crash_msg
       else:
         return None
 
-  def pop_crashAfterVote_request(self):
+  def pop_voteNo_request_with_logging(self):
+    with self.global_lock:
+      if self.voteNo_queue:
+        crash_msg = self.voteNo_queue.popleft()
+        self.storage.write_pop_crash_message(crash_msg)
+        return crash_msg
+      else:
+        return None
+
+
+  def pop_crashAfterVote_request_no_logging(self):
     with self.global_lock:
       if self.crashAfterVote_queue:
-        return self.crashAfterVote_queue.popleft()
+        crash_msg = self.crashAfterVote_queue.popleft()
+        print "pop {} to crash queue but NO logging".format(crash_msg.serialize())
+        return crash_msg
       else:
         return None
 
-  def pop_crashAfterAck_request(self):
+  def pop_crashAfterVote_request_with_logging(self):
+    with self.global_lock:
+      if self.crashAfterVote_queue:
+        crash_msg = self.crashAfterVote_queue.popleft()
+        self.storage.write_pop_crash_message(crash_msg)
+        return crash_msg
+      else:
+        return None
+
+
+  def pop_crashAfterAck_request_no_logging(self):
     with self.global_lock:
       if self.crashAfterAck_queue:
-        return self.crashAfterAck_queue.popleft()
+        crash_msg = self.crashAfterAck_queue.popleft()
+        print "pop {} to crash queue but NO logging".format(crash_msg.serialize())
+        return crash_msg
       else:
         return None
 
-  def pop_crashVoteReq_request(self):
+  def pop_crashAfterAck_request_with_logging(self):
+    with self.global_lock:
+      if self.crashAfterAck_queue:
+        crash_msg = self.crashAfterAck_queue.popleft()
+        self.storage.write_pop_crash_message(crash_msg)
+        return crash_msg
+      else:
+        return None
+
+
+  def pop_crashVoteReq_request_no_logging(self):
     with self.global_lock:
       if self.crashVoteReq_queue:
-        return self.crashVoteReq_queue.popleft()
+        crash_msg = self.crashVoteReq_queue.popleft()
+        print "pop {} to crash queue but NO logging".format(crash_msg.serialize())
+        return crash_msg
       else:
         return None
 
-  def pop_crashPartialPrecommit(self):
+  def pop_crashVoteReq_request_with_logging(self):
+    with self.global_lock:
+      if self.crashVoteReq_queue:
+        crash_msg = self.crashVoteReq_queue.popleft()
+        self.storage.write_pop_crash_message(crash_msg)
+        return crash_msg
+      else:
+        return None
+
+
+  def pop_crashPartialPrecommit_no_logging(self):
     with self.global_lock:
       if self.crashPartialPrecommit_queue:
-        return self.crashPartialPrecommit_queue.popleft()
+        crash_msg = self.crashPartialPrecommit_queue.popleft()
+        print "pop {} to crash queue but NO logging".format(crash_msg.serialize())
+        return crash_msg
       else:
         return None
 
-  def pop_crashPartialCommit(self):
+  def pop_crashPartialPrecommit_with_logging(self):
     with self.global_lock:
-      if self.crashPartialCommit_queue:
-        return self.crashPartialCommit_queue.popleft()
+      if self.crashPartialPrecommit_queue:
+        crash_msg = self.crashPartialPrecommit_queue.popleft()
+        self.storage.write_pop_crash_message(crash_msg)
+        return crash_msg
       else:
         return None
+
+
+  def pop_crashPartialCommit_no_logging(self):
+    with self.global_lock:
+      if self.crashPartialCommit_queue:
+        crash_msg = self.crashPartialCommit_queue.popleft()
+        print "pop {} to crash queue but NO logging".format(crash_msg.serialize())
+        return crash_msg
+      else:
+        return None
+
+  def pop_crashPartialCommit_with_logging(self):
+    with self.global_lock:
+      if self.crashPartialCommit_queue:
+        crash_msg = self.crashPartialCommit_queue.popleft()
+        self.storage.write_pop_crash_message(crash_msg)
+        return crash_msg
+      else:
+        return None
+
 
   def getUrl(self, songname):
     with self.global_lock:
@@ -493,7 +603,7 @@ class Server:
       self.setCoordinatorState(CoordinatorState.completed)
       commitMsg = Decision(self.pid, self.tid, Decide.commit.name)
 
-      crashPartialCommit = self.pop_crashPartialCommit()
+      crashPartialCommit = self.pop_crashPartialCommit_with_logging()
       if crashPartialCommit is not None:
         # broadcast commit will add it to the playlist
         self.broadCastMessage(commitMsg,crashPartialCommit.sendTopid)
@@ -506,7 +616,7 @@ class Server:
     with self.global_lock:
       self.setCoordinatorState(CoordinatorState.precommit)
       precommit = PreCommit(self.pid, self.getTid())
-      crashPartialPreCommit = self.pop_crashPartialPrecommit()
+      crashPartialPreCommit = self.pop_crashPartialPrecommit_with_logging()
       if crashPartialPreCommit is not None:
         if sendTopid != None:
           setToSend = set.intersection(set(crashPartialPreCommit.sendTopid), sendTopid)
