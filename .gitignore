@@ -3,5 +3,4 @@
 venv
 .idea
 */src/db/*
-*.output
 *.err
