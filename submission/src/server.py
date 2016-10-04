@@ -586,6 +586,7 @@ class Server:
           # only try to connect to not yourself
           port_to_connect = START_PORT + i
           cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
+          cur_handler.setClientPid(i)
           cur_handler.start()
       except:
         # only connect to the sockets that are active

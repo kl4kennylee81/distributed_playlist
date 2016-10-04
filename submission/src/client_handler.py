@@ -147,6 +147,7 @@ class ClientConnectionHandler(Thread):
       if self.server.isLeader():
         self._coordinator_timeout_handler()
       else:
+        print "{}. this is clientPID:{}, this is who i think the leader is {}".format(self.server.pid, self.getClientPid(), self.server.getLeader())
         if self.getClientPid() == self.server.getLeader():
           self._participant_timeout_handler()
 
@@ -312,9 +313,8 @@ class ClientConnectionHandler(Thread):
       self.server.other_procs[msg.pid] = self
 
       self.server.setAtomicLeader(msg.atomic_leader)
-      self.setClientPid(msg.pid)
       self.setClientTid(msg.tid)
-
+      self.setClientPid(msg.pid)
 
       # If we're a recovering server + the responding server is on
       # the same transaction as us

@@ -6,8 +6,8 @@ import shutil
 
 # os.system('./build')
 
-test_output = 'test_output'
-tests = 'tests/basic'
+test_output = 'tests_output'
+tests = 'tests_todo'
 try:
     shutil.rmtree(test_output)
 except:
