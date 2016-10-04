@@ -450,7 +450,8 @@ class ClientConnectionHandler(Thread):
     """ Ignores any relect message coming in that is lower than the current atomic leader"""
     with self.server.global_lock:
       if self.server.setAtomicLeader(msg.new_atomic_leader):
-        self.server.broadCastStateReq()
+        if self.server.isLeader():
+          self.server.broadCastStateReq()
 
 
   def _stateReqResponseHandler(self, msg):
