@@ -3,11 +3,17 @@ from abc import ABCMeta, abstractmethod
 import json
 from request_messages import Request, deserialize_client_command_request
 
+
 class CrashRequest(Request):
   msg_type = ForcedType.crash
 
   def __init__(self, tid):
     super(CrashRequest, self).__init__(tid, CrashRequest.msg_type)
+
+  def serialize(self):
+    serialized = "{}".format(ForcedType.crash.name)
+    return serialized
+
 
 # format vote NO
 class VoteNoRequest(Request):
@@ -15,6 +21,10 @@ class VoteNoRequest(Request):
 
   def __init__(self, tid): 
     super(VoteNoRequest, self).__init__(tid, VoteNoRequest.msg_type)
+
+  def serialize(self):
+    serialized = "{}".format(ForcedType.voteNo.name)
+    return serialized
 
 
 # format crashAfterVote
@@ -24,6 +34,11 @@ class CrashAfterVoteRequest(Request):
   def __init__(self, tid): 
     super(CrashAfterVoteRequest, self).__init__(tid, CrashAfterVoteRequest.msg_type)
 
+  def serialize(self):
+    serialized = "{}".format(ForcedType.crashAfterVote.name)
+    return serialized
+
+
 # format crashAfterAck
 class CrashAfterAckRequest(Request):
   msg_type = ForcedType.crashAfterAck
@@ -31,14 +46,23 @@ class CrashAfterAckRequest(Request):
   def __init__(self, tid): 
     super(CrashAfterAckRequest, self).__init__(tid, CrashAfterAckRequest.msg_type)
 
+  def serialize(self):
+    serialized = "{}".format(ForcedType.crashAfterAck.name)
+    return serialized
+
+
 # format is crashVoteREQ 2 3
 class CrashVoteRequest(Request):
   msg_type = ForcedType.crashVoteReq
 
   def __init__(self, tid, sendTopid): 
     super(CrashVoteRequest, self).__init__(tid, CrashVoteRequest.msg_type)
-
     self.sendTopid = map(int,sendTopid)
+
+  def serialize(self):
+    serialized = "{} {}".format(ForcedType.crashVoteReq.name, self.sendTopid)
+    return serialized
+
 
 # format is crashPartialPreCommit 2 3
 class CrashPartialPrecommit(Request):
@@ -46,8 +70,11 @@ class CrashPartialPrecommit(Request):
 
   def __init__(self, tid, sendTopid): 
     super(CrashPartialPrecommit, self).__init__(tid, CrashPartialPrecommit.msg_type)
-
     self.sendTopid = map(int,sendTopid)
+
+  def serialize(self):
+    serialized = "{} {}".format(ForcedType.crashPartialPrecommit.name, self.sendTopid)
+    return serialized
 
 # format is crashPartialCommit 2 3
 class CrashPartialCommit(Request):
@@ -55,8 +82,12 @@ class CrashPartialCommit(Request):
 
   def __init__(self, tid, sendTopid): 
     super(CrashPartialCommit, self).__init__(tid, CrashPartialCommit.msg_type)
-
     self.sendTopid = map(int,sendTopid)
+
+  def serialize(self):
+    serialized = "{} {}".format(ForcedType.crashPartialCommit.name, self.sendTopid)
+    return serialized
+
 
 # Deserialize the Client Request
 def deserialize_client_request(msg_string, tid):

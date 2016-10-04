@@ -33,6 +33,7 @@ class Storage:
     self.debug = 'src/db/' + str(self.pid) + '_debug.txt'
     self.transactions = 'src/db/' + str(self.pid) + '_transactions.txt'
     self.alive_set = 'src/db/' + str(self.pid) + '_alive_set.txt'
+    self.crash_log = 'src/db/' + str(self.pid) + '_crash_log.txt'
 
     # Building all these files so we can interact with them for the
     # purposes of storage
@@ -41,6 +42,7 @@ class Storage:
     log = open(self.debug, 'a'); log.close()
     txn = open(self.transactions, 'a'); txn.close()
     alive = open(self.alive_set, 'a'); alive.close()
+    crash = open(self.crash_log, 'a'); crash.close()
 
 
   def get_disk(self):
@@ -202,3 +204,4 @@ class Storage:
     :param txn: A Request object
     """
     Storage._append_to_file(self.transactions, txn.serialize())
+
