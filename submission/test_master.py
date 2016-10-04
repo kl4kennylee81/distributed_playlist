@@ -26,6 +26,7 @@ class ClientHandler(Thread):
         self.valid = True
 
     def run(self):
+
         global leader, threads, wait_ack
         while self.valid:
             if "\n" in self.buffer:
@@ -85,7 +86,6 @@ def send(index, data, set_wait_ack=False):
         return
     pid = leader
     while pid not in live_list or live_list[pid] == False:
-        print "kennyS"
         time.sleep(0.01)
         pid = leader
     if set_wait_ack:

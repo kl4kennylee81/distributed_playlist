@@ -3,7 +3,7 @@ from constants import *
 import socket
 from socket import SOCK_STREAM, AF_INET
 from collections import deque
-from threading import RLock
+from threading import RLock, Condition
 import sys
 import os
 
@@ -122,6 +122,8 @@ class Server:
     self.master_server, self.master_thread = \
       self._setup_master_server_and_thread(port)
 
+    self.master_waiting_on_recovery = Condition(self.global_lock)
+
     # The socket that all other internal processes connect to
     # for this process
     free_port_no = START_PORT + self.pid
@@ -131,6 +133,9 @@ class Server:
     # Initial socket connections or RECOVERY entrypoint
     self._initial_socket_or_recovery_handler()
 
+
+  def isConsistent(self):
+    return (self.getState() == State.aborted or self.getState() == State.committed)
 
   def isValid(self):
     with self.global_lock:
@@ -211,6 +216,10 @@ class Server:
   def isLeader(self):
     with self.global_lock:
       return self.getLeader() == self.pid
+
+  def getNoLeader(self):
+    with self.global_lock:
+      return self.getAtomicLeader() == -1
 
   def getCoordinatorState(self):
     with self.global_lock:
@@ -548,9 +557,16 @@ class Server:
 
       # R is a superset of the intersection of all the last_alive_sets of the
       # recovered processes
+      print "{}. recovered set: {}, intersection: {}".format(self.pid, self.recovered_set, self.intersection)
       if self.intersection.issubset(self.recovered_set):
         self.set_is_recovering(False)  # We're no longer recovering
         self.send_election()
+
+  def can_issue_full_recovery(self, last_alive_set):
+    self.intersection = \
+      set.intersection(self.intersection, last_alive_set)
+
+    return self.intersection.issubset(self.recovered_set)
 
   def send_election(self):
     with self.global_lock:
@@ -583,6 +599,9 @@ class Server:
     of the previous leader.
     """
     with self.global_lock:
+      if self.isLeader():
+        return
+
       active_pids = [proc.getClientPid() for proc in self.cur_request_set]
 
       for i in xrange(self.n):
@@ -757,6 +776,7 @@ class Server:
           cur_handler = ClientConnectionHandler.fromAddress(ADDRESS, port_to_connect, self)
           cur_handler.setClientPid(i)
           cur_handler.start()
+
       except:
         # only connect to the sockets that are active
         no_socket += 1
@@ -773,15 +793,12 @@ class Server:
     """
     with self.global_lock:
       # Initial Socket Connection Coordination
-      if not self.storage.has_dt_log():
-        # Grab the sockets that don't exist
-        no_socket = self._connect_with_peers(self.n)
-        # if you are the first socket to come up, you are the leader
-        if no_socket == (self.n - 1):
-          self.setAtomicLeader(self.pid)
-
       # If you failed and come back up
-      else:
+
+      # Grab the sockets that don't exist
+      no_socket = self._connect_with_peers(self.n)
+
+      if self.storage.has_dt_log():
         dt_log_arr = self.storage.get_last_dt_entry().split(',')
         self.setTid(int(dt_log_arr[0]))
 
@@ -791,16 +808,20 @@ class Server:
         self.set_is_recovering(True)
         if dt_log_arr[1] == "yes" or dt_log_arr[1] == "votereq":
           self.setState(State.uncertain)
+          # Check to see if we're the only node and we're safe to recover
+          self.full_recovery_check(self.last_alive_set)
+
         elif dt_log_arr[1] == "commit":
           self.setState(State.committed)
         elif dt_log_arr[1] == "abort":
           self.setState(State.aborted)
 
-        # Connect with our peers
-        self._connect_with_peers(self.n)
 
-        # Check to see if we're the only node and we're safe to recover
-        self.full_recovery_check(self.last_alive_set)
+      # if you are the first socket to come up, you are the leader
+      print "{}. initializing socket and his state is {} and no_socket is {}".format(self.pid, self.getState().name, no_socket)
+      if no_socket == (self.n - 1) and self.isConsistent():
+        self.setAtomicLeader(self.pid)
+        self.setCoordinatorState(CoordinatorState.standby)
 
 
   def exit(self):

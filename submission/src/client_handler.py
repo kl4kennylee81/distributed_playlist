@@ -260,6 +260,7 @@ class ClientConnectionHandler(Thread):
     """
 
     with self.server.global_lock:
+      print "{}. in id handler".format(self.server.pid)
       # Necessary for all ID-ing message calls
       self.server.other_procs[msg.pid] = self
 
@@ -285,20 +286,34 @@ class ClientConnectionHandler(Thread):
         recovery_msg = Recovery(self.server.pid, self.server.getTid(), transactions_diff)
         self.send(recovery_msg.serialize())
 
-
       # If we're both uncertain and we're both recovering and we're on the same transaction
       # we want to perform intersection / set logic to see if we can recover.
-      # We'll never pre-maturely recover b/c if there are other serers that are up,
+      # We'll never pre-maturely recover b/c if there are other servers that are up,
       # we'll never include them in our recovered_set and we'll never try and re-elect...
-      # This
-      if self.server.is_recovering and msg.is_recovering and \
-      self.getClientTid() == self.server.getTid():
-
-        # This is how we track processes we know about
+      print "{}. server is_recovering:{}, msg is_recovering:{}".format(self.server.pid, self.server.is_recovering, msg.is_recovering)
+      if self.server.is_recovering and msg.is_recovering:
+        print "{}. got into recovering in id handler".format(self.server.pid)
         self.server.recovered_set.add(msg.pid)
 
-        #
-        self.server.full_recovery_check(msg.last_alive_set)
+        # he has to be recovering after having been committed
+        # he is the leader and is in standby to restart the protocol
+        # while he is blocked on the current transaction until the intersection is met
+        if self.server.isLeader():
+          print "{}. we are the leader and in standby".format(self.server.pid)
+
+          if self.server.isConsistent():
+            print "{}. msg.last_alive_set:{}, intersection:{}, recovered:{}".format(self.server.pid, msg.last_alive_set, self.server.intersection, self.server.recovered_set)
+            if self.server.can_issue_full_recovery(msg.last_alive_set):
+              print "{}. about to notify".format(self.server.pid)
+              self.server.master_waiting_on_recovery.notify()
+
+          elif self.server.getState() == State.uncertain:
+            self.server.full_recovery_check(msg.last_alive_set)
+
+        # if they were in total failure while in the same transaction then
+        # then we must continue on.
+        elif self.server.getNoLeader() and self.getClientTid() == self.server.getTid():
+          self.server.full_recovery_check(msg.last_alive_set)
 
 
   def _recoveryHandler(self, msg):
@@ -374,6 +389,7 @@ class ClientConnectionHandler(Thread):
 
   def _decisionHandler(self, msg):
     with self.server.global_lock:
+      print "{}. in decision handler with state {}".format(self.server.pid, self.server.getState().name)
       if self.server.getState() == State.committable or self.server.getState() == State.uncertain:
         if msg.decision == Decide.commit:
           self.server.storage.write_debug("am commiting")

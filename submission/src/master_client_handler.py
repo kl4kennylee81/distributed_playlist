@@ -93,6 +93,9 @@ class MasterClientHandler(Thread):
   def _transaction_handler(self, deserialized):
     with self.server.global_lock:
 
+      while not self.server.can_issue_full_recovery(self.server.get_last_alive_set()) and self.server.is_recovering:
+        self.server.master_waiting_on_recovery.wait()
+
       voteNo = self.server.pop_voteNo_request()
       if voteNo is not None:
         # how are we going to update the tid for this case?
