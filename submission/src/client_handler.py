@@ -384,10 +384,12 @@ class ClientConnectionHandler(Thread):
         elif msg.decision == Decide.abort:
           self.server.storage.write_debug("am aborting")
           self.server.storage.write_dt_log(msg)
+          self.server.setState(State.aborted)
       else:
         # if out of the commitable stage there can be a abort message
         if msg.decision == Decide.abort:
             self.server.storage.write_dt_log(msg)
+            self.server.setState(State.aborted)
 
 
   # coordinator received messages vote, acks
