@@ -538,7 +538,7 @@ class Server:
         self.setCoordinatorState(CoordinatorState.completed)
 
 
-  def full_recovery_check(self, last_alive_set,is_recovered):
+  def full_recovery_check(self, last_alive_set):
     # Reset this server's intersection to be an intersection
     # of its current intersection and the other process' last_alive_set
     self.intersection = \
