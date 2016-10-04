@@ -286,20 +286,24 @@ class ClientConnectionHandler(Thread):
         recovery_msg = Recovery(self.server.pid, self.server.getTid(), transactions_diff)
         self.send(recovery_msg.serialize())
 
-
       # If we're both uncertain and we're both recovering and we're on the same transaction
       # we want to perform intersection / set logic to see if we can recover.
-      # We'll never pre-maturely recover b/c if there are other serers that are up,
+      # We'll never pre-maturely recover b/c if there are other servers that are up,
       # we'll never include them in our recovered_set and we'll never try and re-elect...
-      # This
-      if self.server.is_recovering and msg.is_recovering and \
-      self.getClientTid() == self.server.getTid():
-
-        # This is how we track processes we know about
+      if self.server.is_recovering and msg.is_recovering:
         self.server.recovered_set.add(msg.pid)
 
-        #
-        self.server.full_recovery_check(msg.last_alive_set)
+        # he has to be recovering after having been committed
+        # he is the leader and is in standby to restart the protocol
+        # while he is blocked on the current transaction until the intersection is met
+        if self.server.isLeader() and self.CoordinatorState == standby:
+          if self.server.can_issue_full_recovery(self.server.get_last_alive_set()):
+            self.server.master_waiting_on_recovery().notify()
+
+        # if they were in total failure while in the same transaction then
+        # then we must continue on.
+        elif self.getClientTid() == self.server.getTid():
+          self.server.full_recovery_check(msg.last_alive_set)
 
 
   def _recoveryHandler(self, msg):

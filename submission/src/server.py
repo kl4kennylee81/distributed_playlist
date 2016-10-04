@@ -122,6 +122,8 @@ class Server:
     self.master_server, self.master_thread = \
       self._setup_master_server_and_thread(port)
 
+    self.master_waiting_on_recovery = Condition(self.global_lock)
+
     # The socket that all other internal processes connect to
     # for this process
     free_port_no = START_PORT + self.pid
@@ -550,6 +552,12 @@ class Server:
       self.set_is_recovering(False)  # We're no longer recovering
       self.send_election()
 
+  def can_issue_full_recovery(self, last_alive_set):
+    self.intersection = \
+      set.intersection(self.intersection, last_alive_set)
+
+    return self.intersection.issubset(self.recovered_set)
+  
   def send_election(self):
     with self.global_lock:
       # round robin selection of next leader
@@ -771,15 +779,8 @@ class Server:
     """
     with self.global_lock:
       # Initial Socket Connection Coordination
-      if not self.storage.has_dt_log():
-        # Grab the sockets that don't exist
-        no_socket = self._connect_with_peers(self.n)
-        # if you are the first socket to come up, you are the leader
-        if no_socket == (self.n - 1):
-          self.setAtomicLeader(self.pid)
-
       # If you failed and come back up
-      else:
+      if self.storage.has_dt_log():
         dt_log_arr = self.storage.get_last_dt_entry().split(',')
         self.setTid(int(dt_log_arr[0]))
 
@@ -794,11 +795,15 @@ class Server:
         elif dt_log_arr[1] == "abort":
           self.setState(State.aborted)
 
-        # Check to see if we're the only node and we're safe to recover
-        self.full_recovery_check(self.last_alive_set)
+          # Check to see if we're the only node and we're safe to recover
+          self.full_recovery_check(self.last_alive_set)
 
-        # Connect with our peers
-        self._connect_with_peers(self.n)
+      # Grab the sockets that don't exist
+      no_socket = self._connect_with_peers(self.n)
+      # if you are the first socket to come up, you are the leader
+      if no_socket == (self.n - 1):
+        self.setAtomicLeader(self.pid)
+        self.setCoordinatorState(CoordinatorState.standby)
 
   def exit(self):
     with self.global_lock:
