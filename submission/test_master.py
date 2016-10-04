@@ -107,6 +107,7 @@ def exit():
     os._exit(0)
 
 def main():
+    os.system('./clean')
     global leader, threads, crash_later, wait_ack
     while True:
         line = ''

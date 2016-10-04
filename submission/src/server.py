@@ -175,7 +175,7 @@ class Server:
     """ Test and set for making sure the new leader is actually bigger than
         the current leader. This is used to ignore new leaders that are lower """
     with self.global_lock:
-      if new_leader > self.getAtomicLeader():
+      if new_leader >= self.getAtomicLeader():
         old = self.getAtomicLeader()
         oldindex = self.getLeader()
         self.leader = new_leader

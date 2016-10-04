@@ -93,7 +93,7 @@ class MasterClientHandler(Thread):
   def _transaction_handler(self, deserialized):
     with self.server.global_lock:
       voteNo = self.server.pop_voteNo_request()
-      if voteNo is None:
+      if voteNo is not None:
         # how are we going to update the tid for this case?
         self.server.broadCastAbort()
         return
