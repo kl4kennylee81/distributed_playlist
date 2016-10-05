@@ -1,1 +1,2 @@
+# sudo pip install enum34
 enum34==1.1.6
