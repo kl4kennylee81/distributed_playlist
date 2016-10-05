@@ -2,4 +2,4 @@
 
 ./clean
 echo "need to install enum34 from pip..."
-sudo pip install enum34
+# sudo pip install enum34
