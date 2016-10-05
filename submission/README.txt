@@ -13,7 +13,7 @@ jma353
 
 We set up servers connected via TCP sockets that were each maintained by separate threads.
 The servers had a global state contained in a Server object that we locked when accessing on a
-per-thread basis.  We also maintained a connection to the master client the entire time.
+per-thread basis.  We also maintained a connection to the master client (master.py) the entire time.
 Threads maintaining connections between processes were ClientConnectionHandlers.
 Threads maintaining connection to the master client were MasterClientHandlers.
 

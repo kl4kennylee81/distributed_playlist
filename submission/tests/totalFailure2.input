@@ -1,0 +1,12 @@
+0 start 2 10002
+1 start 2 10003
+-1 crashPartialPreCommit 1
+1 crashAfterAck
+-1 add song1 url1
+0 start 2 10004
+1 start 2 10005
+1 get song1
+0 get song1
+-1 add song2 url2
+1 get song2
+exit
