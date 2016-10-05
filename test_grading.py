@@ -8,11 +8,13 @@ import shutil
 
 test_output = 'tests_output'
 tests = 'tests_regression'
+
 try:
     shutil.rmtree(test_output)
 except:
     pass
 os.mkdir(test_output)
+
 for f in os.listdir(tests):
     abs_f = join(tests, f)
     if isfile(abs_f):
