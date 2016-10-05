@@ -61,8 +61,6 @@ def deserialize_client_command_request(msg_string, tid):
 
   msg_list = filter(lambda a: a != '', msg_list)
 
-  print "msg list man", msg_list
-
   if msg_list[0].lower() == "add": 
     return Add(tid, msg_list[1], msg_list[2])
   elif msg_list[0].lower() == "delete":

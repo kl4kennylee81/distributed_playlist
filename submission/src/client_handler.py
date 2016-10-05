@@ -122,10 +122,8 @@ class ClientConnectionHandler(Thread):
       while self.isValid():
         data = self.conn.recv(BUFFER_SIZE)
 
-        print("{}->{}. RECV MSG {}".format(self.getClientPid(), self.server.pid,data))
         with self.server.global_lock:
           if len(data) <= 0:
-            self.server.storage.write_debug("Got EOF from socket {}".format(self.getClientPid()))
             self._begin_timeout(True)
             return
 
@@ -141,7 +139,6 @@ class ClientConnectionHandler(Thread):
     # catching all exceptions more than just timeout
     except (socket.timeout, socket.error) as e:
       with self.server.global_lock:
-        self.server.storage.write_debug(str(e) + "[^] Timeout error or Socket Closed")
         self._begin_timeout(False)
         return
 
@@ -154,20 +151,17 @@ class ClientConnectionHandler(Thread):
       if self.server.isLeader():
         self._coordinator_timeout_handler()
       else:
-        print "{}. this is clientPID:{}, this is who i think the leader is {}".format(self.server.pid, self.getClientPid(), self.server.getLeader())
         if self.getClientPid() == self.server.getLeader():
           self._participant_timeout_handler()
 
 
   def _coordinator_timeout_handler(self):
     with self.server.global_lock:
-      "{}.Timeout error handler for client_pid:{}".format(self.server.pid,self.getClientPid())
       self.coord_failureHandler[self.server.getCoordinatorState()]()
 
 
   def _participant_timeout_handler(self):
     with self.server.global_lock:
-      print "{}.In participant_timeout_handler with state {}".format(self.server.pid, self.server.getState().name)
       self.parti_failureHandler[self.server.getState()]()
 
   """ Participant timeout handlers """
@@ -183,16 +177,13 @@ class ClientConnectionHandler(Thread):
 
 
   def _preCommit_timeout(self):
-    debug_print("precommit_timeout")
     self.server.send_election()
 
 
   def _commit_timeout(self):
-    debug_print("commit_timeout")
     self.server.send_election()
 
   def _committed_timeout(self):
-    debug_print("committed_timeout")
     self.server.send_election()
 
   # This is because EOF can be gotten at anytime thus you don't do anything
@@ -260,7 +251,6 @@ class ClientConnectionHandler(Thread):
     """
 
     with self.server.global_lock:
-      print "{}. in id handler".format(self.server.pid)
       # Necessary for all ID-ing message calls
       self.server.other_procs[msg.pid] = self
 
@@ -290,21 +280,16 @@ class ClientConnectionHandler(Thread):
       # we want to perform intersection / set logic to see if we can recover.
       # We'll never pre-maturely recover b/c if there are other servers that are up,
       # we'll never include them in our recovered_set and we'll never try and re-elect...
-      print "{}. server is_recovering:{}, msg is_recovering:{}".format(self.server.pid, self.server.is_recovering, msg.is_recovering)
       if self.server.is_recovering and msg.is_recovering:
-        print "{}. got into recovering in id handler".format(self.server.pid)
         self.server.recovered_set.add(msg.pid)
 
         # he has to be recovering after having been committed
         # he is the leader and is in standby to restart the protocol
         # while he is blocked on the current transaction until the intersection is met
         if self.server.isLeader():
-          print "{}. we are the leader and in standby".format(self.server.pid)
 
           if self.server.isConsistent():
-            print "{}. msg.last_alive_set:{}, intersection:{}, recovered:{}".format(self.server.pid, msg.last_alive_set, self.server.intersection, self.server.recovered_set)
             if self.server.can_issue_full_recovery(msg.last_alive_set):
-              print "{}. about to notify".format(self.server.pid)
               self.server.master_waiting_on_recovery.notify()
 
           elif self.server.getState() == State.uncertain:
@@ -319,17 +304,14 @@ class ClientConnectionHandler(Thread):
   def _recoveryHandler(self, msg):
     with self.server.global_lock:
       if self.server.getTid() < msg.tid or self.server.is_recovering:
-        print "{} got the recovery message!".format(self.server.pid)
         self.server.update_transactions(msg.transactions_diff)
 
 
   # Participant recieved messages votereq
   def _voteReqHandler(self, msg):
     with self.server.global_lock:
-      print "{}. in the votereq handler with state {}".format(self.server.pid, self.server.getState().name)
       if self.server.getState() == State.aborted \
       or self.server.getState() == State.committed:
-        print "{}. in the votereq handler condition".format(self.server.pid)
         self.server.setState(State.uncertain)
 
         # Brings us up to date
@@ -389,13 +371,10 @@ class ClientConnectionHandler(Thread):
 
   def _decisionHandler(self, msg):
     with self.server.global_lock:
-      print "{}. in decision handler with state {}".format(self.server.pid, self.server.getState().name)
       if self.server.getState() == State.committable or self.server.getState() == State.uncertain:
         if msg.decision == Decide.commit:
-          self.server.storage.write_debug("am commiting")
           self.server.commit_cur_request()
         elif msg.decision == Decide.abort:
-          self.server.storage.write_debug("am aborting")
           self.server.storage.write_dt_log(msg)
           self.server.setState(State.aborted)
       else:
@@ -442,7 +421,6 @@ class ClientConnectionHandler(Thread):
       if self.server.setAtomicLeader(msg.atomic_leader):
         # respond with my current state
         stateResponseMsg = StateReqResponse(self.server.pid, self.server.getTid(), self.server.getState().name)
-        debug_print("{}. sending stateReqResponse -> {}".format(self.server.pid,stateResponseMsg.serialize()))
         self.send(stateResponseMsg.serialize())
 
   def _reelectHandler(self, msg):
@@ -492,5 +470,5 @@ class ClientConnectionHandler(Thread):
           if not isClosed:
             self.conn.shutdown(socket.SHUT_RDWR)
             self.conn.close()
-        except socket.error, e:
-          self.server.storage.write_debug(str(e) + "\n[^] Client Socket error while closing")
+        except socket.error:
+          pass

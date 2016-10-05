@@ -195,7 +195,6 @@ class Server:
         old = self.getAtomicLeader()
         oldindex = self.getLeader()
         self.leader = new_leader
-        storage.debug_print("PID: {} set Atomic:{}->{} Actual: {}->{}".format(self.pid, old, new_leader,oldindex, self.getLeader()))
 
         # ping master client of new leader
         new_coord = ResponseCoordinator(self.getLeader())
@@ -293,8 +292,6 @@ class Server:
 
     active_pids = [client.getClientPid() for client in self.cur_request_set]
 
-    print "{}. active_pids:{}, client_pid:{}".format(self.pid, active_pids, client_pid)
-
     return client_pid in active_pids
 
 
@@ -320,7 +317,6 @@ class Server:
           if self.request_queue:
             # dequeue the request that we are aborting to avoid repeats
             aborted_request = self.request_queue.popleft()
-            print "{}. state is now aborted, throwing away {}".format(self.pid, aborted_request)
         self.state = newState
 
   def newParticipant(self, pid, new_thread):
@@ -476,8 +472,6 @@ class Server:
       abortMsg = Decision(self.pid, self.getTid(), Decide.abort.name)
       self.setCoordinatorState(CoordinatorState.standby)
 
-      print "broadcasting abort man"
-
       # Log the abort
       self.storage.write_dt_log(abortMsg)
       self.broadCastMessage(abortMsg)
@@ -527,7 +521,6 @@ class Server:
     with self.global_lock:
       if self.isValid():
         current_request = self.request_queue.popleft()
-        print "{}. this is the current request that i am committing {}".format(self.pid, current_request)
         if current_request is not None:
           self.commandRequestExecutors[current_request.msg_type](current_request)
           self.setState(State.committed)
@@ -549,7 +542,6 @@ class Server:
 
   def full_recovery_check(self, last_alive_set):
     with self.global_lock:
-      print "{}. starting full_recovery_check".format(self.pid)
       # Reset this server's intersection to be an intersection
       # of its current intersection and the other process' last_alive_set
       self.intersection = \
@@ -557,7 +549,6 @@ class Server:
 
       # R is a superset of the intersection of all the last_alive_sets of the
       # recovered processes
-      print "{}. recovered set: {}, intersection: {}".format(self.pid, self.recovered_set, self.intersection)
       if self.intersection.issubset(self.recovered_set):
         self.set_is_recovering(False)  # We're no longer recovering
         self.send_election()
@@ -572,8 +563,6 @@ class Server:
     with self.global_lock:
       # round robin selection of next leader
       self.setCurRequestProcesses()
-      print "{}. is it getting set or not {}".format(self.pid,
-                                            self.cur_request_set)
       self._set_next_leader()
 
       if self.isLeader():
@@ -630,7 +619,6 @@ class Server:
 
       allStates = [self.getState()]
 
-      print("{}. calling termination gather {}".format(self.getPid(), self.cur_request_set))
       # first case is check for aborts
       for client_proc in self.cur_request_set:
         allStates.append(client_proc.getClientState())
@@ -643,7 +631,6 @@ class Server:
       # second case is check for commit
       for tpState in allStates:
         if tpState == State.committed:
-          print("{}. did we broadcast commit to all".format(self.getPid()))
           self.broadCastCommit()
           return
 
@@ -726,7 +713,6 @@ class Server:
     with self.global_lock:
       if self.isValid():
         song_name, url = add_req.song_name, add_req.url
-        print "{}. commiting {} {}".format(self.pid, song_name, url)
         # LOG: Stable storage
         self.storage.write_dt_log(add_req)
         self.storage.add_song(song_name, url)
@@ -799,7 +785,6 @@ class Server:
       no_socket = self._connect_with_peers(self.n)
 
       if self.storage.has_dt_log():
-        print "{}. is reading sate from dt log".format(self.pid)
         dt_log_arr = self.storage.get_last_dt_entry().split(',')
         self.setTid(int(dt_log_arr[0]))
 
@@ -820,8 +805,6 @@ class Server:
 
       # if you are the first socket to come up, you are the leader
       if no_socket == (self.n - 1) and self.isConsistent():
-        print "{}. initializing socket and his state is {} and no_socket is {}".format(self.pid, self.getState().name,
-                                                                                       no_socket)
         self.setAtomicLeader(self.pid)
         self.setCoordinatorState(CoordinatorState.standby)
 

@@ -13,7 +13,6 @@ def main():
   """
   pid, n, port = map(int, sys.argv[1:])
   server.Server(pid, n, port)
-  debug_print("Finished starting up process {} at port {}".format(pid, port))
 
 if __name__ == "__main__":
   main()

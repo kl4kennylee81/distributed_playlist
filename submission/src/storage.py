@@ -193,7 +193,6 @@ class Storage:
     :param debug_message: A String
     """
     debug_message = "PID: {}, LOG: {}".format(self.pid, debug_message)
-    debug_print(debug_message)
     Storage._append_to_file(self.debug, debug_message)
 
   def write_transaction(self, txn):
