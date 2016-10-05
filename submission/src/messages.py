@@ -276,6 +276,7 @@ MSG_CONSTRUCTORS = {
 
 # Deserialize (called for internal message passing)
 def deserialize_message(msg_string):
+  print("\ndeserialize string {}\n".format(msg_string))
   myJSON = json.loads(msg_string)
   return MSG_CONSTRUCTORS[myJSON['type']].from_json(myJSON)
 

@@ -154,7 +154,7 @@ class MasterClientHandler(Thread):
     :param s: message string
     """
     with self.server.global_lock:
-      self.master_conn.send(str(s))
+      self.master_conn.send(str(s) + '\n')
 
 
   def close(self):

@@ -12,6 +12,8 @@ from response_messages import ResponseAck
 from storage import debug_print
 
 
+MSG_DELIMITER = "$$$$$$$$"
+
 class ClientConnectionHandler(Thread):
   """
   Internal server process has an associated client handler thread to handle the
@@ -120,7 +122,7 @@ class ClientConnectionHandler(Thread):
 
     try:
       while self.isValid():
-        data = self.conn.recv(BUFFER_SIZE)
+        data = self.recv()
 
         with self.server.global_lock:
           if len(data) <= 0:
@@ -450,7 +452,16 @@ class ClientConnectionHandler(Thread):
   def send(self, s):
     with self.server.global_lock:
       if self.isValid():
-        self.conn.send(str(s))
+        self.conn.send(str(s)+MSG_DELIMITER)
+
+  def recv(self):
+    recv_str = ""
+    while(len(recv_str) <= len(MSG_DELIMITER) or recv_str[-len(MSG_DELIMITER):] != MSG_DELIMITER):
+      cur_recv=self.conn.recv(1)
+      if len(cur_recv) <= 0:
+        return cur_recv
+      recv_str+=cur_recv
+    return recv_str[:len(recv_str)-len(MSG_DELIMITER)]
 
 
   def close(self,isClosed=False):
