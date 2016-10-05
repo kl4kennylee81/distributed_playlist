@@ -218,3 +218,8 @@ class Storage:
     print "logging {} to stable storage".format(serialized)
     Storage._append_to_file(self.crash_log, serialized)
 
+
+  def get_crash_log(self):
+    with open(self.crash_log, 'r') as f:
+      return f.readlines()
+

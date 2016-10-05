@@ -6,12 +6,16 @@ from collections import deque
 from threading import RLock, Condition
 import sys
 import os
+import ast
 
 # whitelist import from our files
 from request_messages import Add, Delete
 from response_messages import ResponseAck,ResponseCoordinator,ResponseGet
 from messages import StateReq, Decision, PreCommit, Reelect
 import storage
+
+from crash_request_messages import VoteNoRequest, CrashAfterVoteRequest, CrashAfterAckRequest, \
+  CrashVoteRequest, CrashPartialPrecommit, CrashPartialCommit
 
 from server_handler import ServerConnectionHandler
 from client_handler import ClientConnectionHandler
@@ -108,6 +112,9 @@ class Server:
     self.crashPartialPrecommit_queue = deque()
     self.crashPartialCommit_queue = deque()
 
+    # simulates the crash logs in stable storage to get up to date
+    self._recover_crash_logs()
+
     # Stable storage, in-memory
     self.transaction_history = self.storage.get_transcations()
     # Logic to add yourself to last alive set if this is a fresh set of logs
@@ -132,6 +139,65 @@ class Server:
 
     # Initial socket connections or RECOVERY entrypoint
     self._initial_socket_or_recovery_handler()
+
+
+  def _recover_crash_logs(self):
+    crash_logs = self.storage.get_crash_log()
+
+    for line in crash_logs:
+      line = line.strip() # take away the \n at the end
+
+      # format is "action command (optional sendtopid list)"
+      action = line.split(" ")[0]
+      command = line.split(" ")[1]
+
+      if command == ForcedType.voteNo.name:
+        request = VoteNoRequest(self.tid)  # these tids dont matter
+        if action == "push":
+          self.add_voteNo_request_no_logging(request)
+        elif action == "pop":
+          self.pop_voteNo_request_no_logging()
+
+      if command == ForcedType.crashAfterVote.name:
+        request = CrashAfterVoteRequest(self.tid)
+        if action == "push":
+          self.add_crashAfterVote_request_no_logging(request)
+        elif action == "pop":
+          self.pop_crashAfterVote_request_no_logging()
+
+      if command == ForcedType.crashAfterAck.name:
+        request = CrashAfterAckRequest(self.tid)
+        if action == "push":
+          self.add_crashAfterAck_request_no_logging(request)
+        elif action == "pop":
+          self.pop_crashAfterAck_request_no_logging()
+
+      if command == ForcedType.crashVoteReq.name:
+        string_pids = line.split(" ")[2]
+        send_to_pid = ast.literal_eval(string_pids)
+        request = CrashVoteRequest(self.tid, send_to_pid)
+        if action == "push":
+          self.add_crashVoteReq_request_no_logging(request)
+        elif action == "pop":
+          self.pop_crashVoteReq_request_no_logging()
+
+      if command == ForcedType.crashPartialPrecommit.name:
+        string_pids = line.split(" ")[2]
+        send_to_pid = ast.literal_eval(string_pids)
+        request = CrashPartialPrecommit(self.tid, send_to_pid)
+        if action == "push":
+          self.add_crashPartialPrecommit_no_logging(request)
+        elif action == "pop":
+          self.pop_crashPartialPrecommit_no_logging()
+
+      if command == ForcedType.crashPartialCommit.name:
+        string_pids = line.split(" ")[2]
+        send_to_pid = ast.literal_eval(string_pids)
+        request = CrashPartialCommit(self.tid, send_to_pid)
+        if action == "push":
+          self.add_crashPartialCommit_no_logging(request)
+        elif action == "pop":
+          self.pop_crashPartialCommit_no_logging()
 
 
   def isConsistent(self):
