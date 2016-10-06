@@ -1,0 +1,4 @@
+#!/bin/bash
+
+./clean
+ps aux | grep "start_node.py" | awk {'print $2'} | xargs kill

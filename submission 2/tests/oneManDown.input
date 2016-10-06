@@ -1,0 +1,7 @@
+1 start 8 10003
+2 start 8 10004
+3 start 8 10005
+2 crashAfterVote
+-1 add song url
+3 get song
+exit

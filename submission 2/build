@@ -1,0 +1,5 @@
+#!/bin/bash
+
+./clean
+echo "need to install enum34 from pip..."
+# sudo pip install enum34
