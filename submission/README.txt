@@ -35,7 +35,7 @@ system states (COMMITTED, COMMITTABLE, UNCERTAIN, ABORT), etc.
 We kept a series of system constants in a constants.py file.
 
 
-Description of our tests Tests Custom
+Description of our tests in directory tests
 
 ### Two Nodes
 - crashPartialPreCommit1: Testing case where new leader is elected but he’s the only one so he has to move on by examining his current state
